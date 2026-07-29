@@ -2,66 +2,664 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Claude 身份注入</title>
   <style>
-    :root{color-scheme:light dark;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#18212b;background:#f5f7f9}*{box-sizing:border-box}body{margin:0;background:#f5f7f9;color:#18212b;font-size:14px}button,input,textarea,select{font:inherit}button{cursor:pointer}.page{min-height:100vh}.toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;min-height:58px;padding:10px 18px;border-bottom:1px solid #d8dee5;background:#fff}.toolbar h1{font-size:17px;margin:0;margin-right:auto}.key{width:min(280px,34vw)}input,textarea,select{border:1px solid #b9c3cd;border-radius:5px;background:#fff;color:#18212b;padding:8px 9px;min-width:0}textarea{resize:vertical;min-height:62px}.btn{border:1px solid #aeb9c4;border-radius:5px;background:#fff;color:#18212b;padding:8px 12px}.btn.primary{background:#126b5b;border-color:#126b5b;color:#fff}.btn.danger{color:#a12b2b}.icon{width:32px;height:32px;padding:0;font-size:18px}.content{max-width:1180px;margin:0 auto;padding:18px}.status{display:flex;align-items:center;gap:10px;min-height:34px;margin-bottom:14px;color:#53616f}.status.error{color:#b42318}.settings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:14px 0 18px;border-bottom:1px solid #d8dee5}.field{display:flex;flex-direction:column;gap:6px}.check{display:flex;align-items:center;gap:8px;min-height:38px}.check input{width:16px;height:16px}.identity{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#eaf0f3;padding:10px 12px;border-left:3px solid #126b5b;overflow-wrap:anywhere}.sectionHead{display:flex;align-items:center;gap:10px;margin:18px 0 10px}.sectionHead h2{font-size:15px;margin:0;margin-right:auto}.rule{display:grid;grid-template-columns:36px minmax(130px,.8fr) minmax(130px,1fr) minmax(180px,1.2fr) minmax(150px,1fr) 92px;gap:10px;align-items:start;padding:12px 0;border-top:1px solid #d8dee5}.rule:first-child{border-top:0}.ruleOrder{display:flex;flex-direction:column;gap:5px}.ruleFields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rule label{display:flex;flex-direction:column;gap:5px;color:#53616f;font-size:12px}.rule input,.rule textarea,.rule select{width:100%;font-size:13px}.rule select{min-height:96px}.ruleActions{display:flex;gap:6px;justify-content:flex-end}.empty{padding:28px 0;color:#687684;text-align:center;border-top:1px solid #d8dee5}.cloak{margin-top:14px;padding:10px 12px;background:#fff4dc;border-left:3px solid #b97800;color:#644500}.stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;color:#53616f}.stats b{color:#18212b}@media(max-width:900px){.toolbar{flex-wrap:wrap}.toolbar h1{width:100%}.key{width:100%;flex:1}.settings{grid-template-columns:1fr}.rule{grid-template-columns:32px 1fr}.rule>.ruleFields,.rule>label,.rule>.ruleActions{grid-column:2}.content{padding:14px}}@media(prefers-color-scheme:dark){:root{color:#e6edf3;background:#11161c}body{background:#11161c;color:#e6edf3}.toolbar,input,textarea,select,.btn{background:#171e26;color:#e6edf3;border-color:#3a4652}.content{color:#e6edf3}.identity{background:#1b2b2a}.status,.rule label,.stats{color:#aab6c2}.stats b{color:#e6edf3}.cloak{background:#332a17;color:#ead49b}.settings,.rule,.toolbar{border-color:#34404b}}
+    :root {
+      color-scheme: light;
+      --bg-secondary: #faf9f5;
+      --bg-primary: #f0eee8;
+      --bg-tertiary: #e9e6df;
+      --bg-hover: var(--bg-tertiary);
+      --text-primary: #2d2a26;
+      --text-secondary: #6d6760;
+      --text-tertiary: #a29c95;
+      --border-color: #e3e1db;
+      --border-primary: #d5d2cb;
+      --primary-color: #8b8680;
+      --primary-hover: #7f7a74;
+      --primary-contrast: #fff;
+      --success-color: #10b981;
+      --warning-color: #c65746;
+      --danger-color: #c65746;
+      --focus-ring: color-mix(in srgb, var(--primary-color) 18%, transparent);
+      font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    :root[data-theme="white"] {
+      --bg-secondary: #fff;
+      --bg-primary: #fff;
+      --bg-tertiary: #f6f6f6;
+      --border-color: #e5e5e5;
+      --border-primary: #d9d9d9;
+    }
+
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg-secondary: #151412;
+      --bg-primary: #1d1b18;
+      --bg-tertiary: #262320;
+      --bg-hover: #2e2a26;
+      --text-primary: #f6f4f1;
+      --text-secondary: #c9c3bb;
+      --text-tertiary: #9c958d;
+      --border-color: #3a3530;
+      --border-primary: #4a453f;
+      --primary-hover: #9a948e;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .55; }
+
+    .page {
+      display: flex;
+      min-height: 100vh;
+      flex-direction: column;
+      gap: 20px;
+      padding: clamp(20px, 3vw, 36px);
+    }
+
+    .page-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .title-group { min-width: 0; }
+
+    h1 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .description {
+      max-width: 720px;
+      margin: 7px 0 0;
+      color: var(--text-secondary);
+      line-height: 1.55;
+    }
+
+    .connection-state,
+    .status-pill,
+    .stat {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+      background: color-mix(in srgb, var(--bg-primary) 65%, transparent);
+      color: var(--text-secondary);
+    }
+
+    .connection-state {
+      min-height: 32px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+      padding: 5px 11px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .state-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--text-tertiary);
+    }
+
+    .connection-state.connected .state-dot { background: var(--success-color); }
+    .connection-state.error { color: var(--danger-color); }
+    .connection-state.error .state-dot { background: var(--danger-color); }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 440px) auto 1fr auto;
+      align-items: end;
+      gap: 10px;
+      padding: 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--bg-primary) 72%, transparent);
+    }
+
+    .field {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .field-label {
+      color: var(--text-primary);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .field-hint {
+      color: var(--text-tertiary);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--border-primary);
+      border-radius: 8px;
+      outline: none;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    input, select { min-height: 38px; padding: 8px 10px; }
+    textarea { min-height: 70px; padding: 9px 10px; resize: vertical; line-height: 1.45; }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px var(--focus-ring);
+    }
+
+    select[multiple] { min-height: 108px; padding: 5px; }
+    select[multiple] option { padding: 6px 7px; border-radius: 5px; }
+
+    .button {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--border-primary);
+      border-radius: 8px;
+      padding: 8px 13px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-weight: 600;
+      line-height: 1;
+      transition: background .15s ease, border-color .15s ease, color .15s ease;
+    }
+
+    .button:hover:not(:disabled) { border-color: var(--primary-color); background: var(--bg-hover); }
+    .button.primary { border-color: var(--primary-color); background: var(--primary-color); color: var(--primary-contrast); }
+    .button.primary:hover:not(:disabled) { background: var(--primary-hover); }
+    .button.danger { color: var(--danger-color); }
+    .button.icon { width: 32px; min-height: 32px; padding: 0; }
+    .button svg { width: 16px; height: 16px; stroke: currentColor; }
+
+    .status-message {
+      grid-column: 1 / -1;
+      min-height: 20px;
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .status-message.error { color: var(--danger-color); }
+    .status-message.success { color: var(--success-color); }
+
+    .section {
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-primary);
+    }
+
+    .section-header {
+      display: flex;
+      min-height: 58px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .section-title { min-width: 0; }
+
+    .section-title h2 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .section-title p {
+      margin: 4px 0 0;
+      color: var(--text-tertiary);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .settings-list { display: flex; flex-direction: column; }
+
+    .setting-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 20px;
+      min-height: 70px;
+      padding: 14px 16px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .setting-row:first-child { border-top: 0; }
+    .setting-copy strong { display: block; font-size: 14px; }
+    .setting-copy span { display: block; margin-top: 4px; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
+
+    .switch { position: relative; display: inline-flex; flex: 0 0 auto; }
+    .switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .switch-track { width: 40px; height: 22px; border: 1px solid var(--border-primary); border-radius: 999px; background: var(--bg-tertiary); transition: .18s ease; }
+    .switch-track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--text-tertiary); transition: .18s ease; }
+    .switch input:checked + .switch-track { border-color: var(--primary-color); background: var(--primary-color); }
+    .switch input:checked + .switch-track::after { transform: translateX(18px); background: #fff; }
+    .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--focus-ring); }
+
+    .identity-block { padding: 16px; border-top: 1px solid var(--border-color); }
+    .identity-label { margin-bottom: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 650; }
+    .identity-prompt { margin: 0; padding: 11px 12px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-secondary); color: var(--text-primary); font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; }
+
+    .warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin: 0 16px 16px;
+      padding: 11px 12px;
+      border: 1px solid color-mix(in srgb, var(--warning-color) 38%, var(--border-color));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--warning-color) 9%, var(--bg-secondary));
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .warning svg { width: 17px; height: 17px; flex: 0 0 auto; color: var(--warning-color); }
+    .warning strong { color: var(--text-primary); }
+
+    .stats { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
+    .stat { min-height: 28px; border-radius: 6px; padding: 4px 8px; font-size: 11px; }
+    .stat b { color: var(--text-primary); font-size: 12px; }
+
+    .rules-list { display: flex; flex-direction: column; }
+
+    .rule {
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr);
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-primary);
+    }
+
+    .rule:first-child { border-top: 0; }
+    .rule-order { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 16px 6px; border-right: 1px solid var(--border-color); background: color-mix(in srgb, var(--bg-secondary) 65%, transparent); }
+    .rule-number { margin-bottom: 2px; color: var(--text-tertiary); font-size: 11px; font-weight: 700; }
+    .rule-body { min-width: 0; padding: 16px; }
+
+    .rule-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
+    .rule-name { display: flex; min-width: 0; align-items: center; gap: 9px; }
+    .rule-name input { max-width: 320px; font-weight: 650; }
+    .rule-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+
+    .rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .rule-grid .wide { grid-column: 1 / -1; }
+    .auth-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, .7fr); gap: 10px; }
+    .model-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+    .empty { padding: 42px 20px; color: var(--text-secondary); text-align: center; }
+    .empty strong { display: block; margin-bottom: 5px; color: var(--text-primary); }
+
+    @media (max-width: 760px) {
+      .page { gap: 14px; padding: 16px; }
+      .page-header { flex-direction: column; gap: 12px; }
+      h1 { font-size: 24px; }
+      .toolbar { grid-template-columns: 1fr auto; align-items: end; }
+      .toolbar .field { grid-column: 1 / -1; }
+      .toolbar-spacer { display: none; }
+      .rule-grid, .auth-grid, .model-grid { grid-template-columns: minmax(0, 1fr); }
+      .rule-grid .wide { grid-column: auto; }
+      .rule-heading { align-items: flex-start; }
+      .rule-name { align-items: flex-start; flex-direction: column-reverse; flex: 1; }
+      .rule-name input { max-width: none; }
+    }
+
+    @media (max-width: 460px) {
+      .page { padding: 12px; }
+      .toolbar { grid-template-columns: 1fr; }
+      .toolbar .field, .toolbar .button { grid-column: 1; width: 100%; }
+      .setting-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      .rule { grid-template-columns: 38px minmax(0, 1fr); }
+      .rule-body { padding: 13px; }
+      .rule-heading { flex-direction: column; }
+      .rule-name, .rule-actions { width: 100%; }
+      .rule-actions .button { flex: 1; }
+      .section-header { align-items: flex-start; flex-direction: column; }
+      .section-header .button { width: 100%; }
+    }
   </style>
 </head>
 <body>
-  <div class="page">
-    <header class="toolbar">
-      <h1>Claude 身份注入</h1>
-      <input id="key" class="key" type="password" autocomplete="current-password" placeholder="管理密钥">
-      <button id="connect" class="btn">连接</button>
-      <button id="save" class="btn primary" disabled>保存</button>
+  <main class="page">
+    <header class="page-header">
+      <div class="title-group">
+        <h1>Claude 身份注入</h1>
+        <p class="description">按提供商、认证凭证和模型匹配请求，在 system 首位注入 Claude Code 身份提示词。</p>
+      </div>
+      <div id="connectionState" class="connection-state">
+        <span class="state-dot"></span>
+        <span id="connectionLabel">未连接</span>
+      </div>
     </header>
-    <main class="content">
-      <div id="status" class="status">未连接</div>
-      <div class="identity">You are Claude Code, Anthropic's official CLI for Claude.</div>
-      <section class="settings">
-        <label class="check"><input id="active" type="checkbox">启用身份注入</label>
-        <label class="check"><input id="skipCloak" type="checkbox" checked>检测到 CPA Cloak 时跳过</label>
-        <label class="check"><input id="logMatches" type="checkbox" checked>记录命中与注入日志</label>
-      </section>
-      <div class="cloak">要保证身份文本严格位于 system[0]，匹配凭证的 CPA Cloak 应设置为 never。</div>
-      <div class="sectionHead"><h2>匹配规则</h2><button id="add" class="btn">新增规则</button></div>
-      <div id="rules"></div>
+
+    <section class="toolbar" aria-label="管理连接">
+      <label class="field">
+        <span class="field-label">管理密钥</span>
+        <input id="key" type="password" autocomplete="current-password" placeholder="输入 CPA 管理密钥">
+      </label>
+      <button id="connect" class="button" type="button">连接</button>
+      <span class="toolbar-spacer"></span>
+      <button id="save" class="button primary" type="button" disabled>保存配置</button>
+      <div id="status" class="status-message">连接后可读取和修改插件配置。</div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <div class="section-title">
+          <h2>运行设置</h2>
+          <p>控制插件是否处理匹配请求，以及与 CPA Cloak 的协作方式。</p>
+        </div>
+      </div>
+      <div class="settings-list">
+        <div class="setting-row">
+          <div class="setting-copy"><strong>启用身份注入</strong><span>仅启用的规则会参与匹配；关闭后插件保留配置但不修改请求。</span></div>
+          <label class="switch"><input id="active" type="checkbox" aria-label="启用身份注入"><span class="switch-track"></span></label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-copy"><strong>检测到 CPA Cloak 时跳过</strong><span>避免插件提示词与 Cloak 的 system 注入互相覆盖或改变顺序。</span></div>
+          <label class="switch"><input id="skipCloak" type="checkbox" checked aria-label="检测到 CPA Cloak 时跳过"><span class="switch-track"></span></label>
+        </div>
+        <div class="setting-row">
+          <div class="setting-copy"><strong>记录匹配日志</strong><span>在 CPA 主日志中记录规则命中、注入、跳过与错误事件，不记录凭证秘密。</span></div>
+          <label class="switch"><input id="logMatches" type="checkbox" checked aria-label="记录匹配日志"><span class="switch-track"></span></label>
+        </div>
+      </div>
+      <div class="identity-block">
+        <div class="identity-label">固定注入内容</div>
+        <pre class="identity-prompt">You are Claude Code, Anthropic's official CLI for Claude.</pre>
+      </div>
+      <div class="warning">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+        <span><strong>Cloak 顺序提示：</strong>要保证身份文本严格位于 system[0]，匹配凭证的 CPA Cloak 应设置为 never。</span>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="section-header">
+        <div class="section-title">
+          <h2>匹配规则</h2>
+          <p>按列表顺序匹配，首条命中的规则生效；留空的条件不参与限制。</p>
+        </div>
+        <button id="add" class="button" type="button">新增规则</button>
+      </div>
       <div id="stats" class="stats"></div>
-    </main>
-  </div>
+      <div id="rules" class="rules-list"></div>
+    </section>
+  </main>
+
   <script>
-    const PLUGIN='claude-system-identity-injector';
-    const configURL=`/v0/management/plugins/${PLUGIN}/config`;
-    const authURL=`/v0/management/plugins/${PLUGIN}/auths`;
-    const statusURL=`/v0/management/plugins/${PLUGIN}/status`;
-    const state={key:sessionStorage.getItem(`${PLUGIN}:key`)||'',config:null,rules:[],auths:[]};
-    const $=id=>document.getElementById(id);
-    $('key').value=state.key;
-    function headers(){return {'Authorization':`Bearer ${state.key}`,'Content-Type':'application/json'}}
-    function setStatus(text,error=false){$('status').textContent=text;$('status').className=`status${error?' error':''}`}
-    function split(value){return value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean)}
-    function join(value){return (value||[]).join(', ')}
-    async function api(url,options={}){const response=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const text=await response.text();let body={};try{body=text?JSON.parse(text):{}}catch{body={message:text}}if(!response.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);return body}
-    function authLabel(auth){return `${auth.label||auth.name||auth.id||auth.auth_index} · ${auth.provider||'unknown'}`}
-    function newRule(){return{id:`rule-${Date.now().toString(36)}`,enabled:true,providers:['claude'],auth_ids:[],auth_indexes:[],requested_models:[],upstream_models:['claude-*']}}
-    function move(index,delta){const next=index+delta;if(next<0||next>=state.rules.length)return;[state.rules[index],state.rules[next]]=[state.rules[next],state.rules[index]];renderRules()}
-    function removeRule(index){state.rules.splice(index,1);renderRules()}
-    function renderRules(){const root=$('rules');root.innerHTML='';if(!state.rules.length){root.innerHTML='<div class="empty">暂无规则</div>';return}state.rules.forEach((rule,index)=>{const row=document.createElement('div');row.className='rule';row.innerHTML=`
-      <div class="ruleOrder"><button class="btn icon" title="上移">↑</button><button class="btn icon" title="下移">↓</button></div>
-      <div class="ruleFields"><label>规则 ID<input data-k="id" value="${escapeHTML(rule.id||'')}"></label><label class="check"><input data-k="enabled" type="checkbox" ${rule.enabled?'checked':''}>启用</label></div>
-      <label>提供商<input data-k="providers" value="${escapeHTML(join(rule.providers))}" placeholder="claude"></label>
-      <label>认证凭证<select data-k="auth_indexes" multiple>${state.auths.map(a=>`<option value="${escapeHTML(a.auth_index||'')}" ${(rule.auth_indexes||[]).includes(a.auth_index)?'selected':''}>${escapeHTML(authLabel(a))}</option>`).join('')}</select><input data-k="auth_ids" value="${escapeHTML(join(rule.auth_ids))}" placeholder="Auth ID，可选"></label>
-      <div class="ruleFields"><label>请求模型<textarea data-k="requested_models" placeholder="claude-*">${escapeHTML(join(rule.requested_models))}</textarea></label><label>上游模型<textarea data-k="upstream_models" placeholder="claude-*">${escapeHTML(join(rule.upstream_models))}</textarea></label></div>
-      <div class="ruleActions"><button class="btn danger" title="删除">删除</button></div>`;
-      const order=row.querySelectorAll('.ruleOrder button');order[0].onclick=()=>move(index,-1);order[1].onclick=()=>move(index,1);row.querySelector('.ruleActions button').onclick=()=>removeRule(index);
-      row.querySelectorAll('[data-k]').forEach(input=>{input.onchange=()=>{const key=input.dataset.k;if(input.type==='checkbox')rule[key]=input.checked;else if(input.multiple)rule[key]=Array.from(input.selectedOptions).map(o=>o.value).filter(Boolean);else if(['providers','auth_ids','requested_models','upstream_models'].includes(key))rule[key]=split(input.value);else rule[key]=input.value.trim()}});root.appendChild(row)})}
-    function escapeHTML(value){return String(value).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
-    function renderStats(data){$('stats').innerHTML=['seen','matched','injected','already_present','cloak_skipped','errors'].map(k=>`<span>${k}: <b>${data[k]??0}</b></span>`).join('')}
-    async function connect(){state.key=$('key').value.trim();if(!state.key){setStatus('请输入管理密钥',true);return}sessionStorage.setItem(`${PLUGIN}:key`,state.key);setStatus('正在读取配置');try{const [cfg,auths,stats]=await Promise.all([api(configURL),api(authURL),api(statusURL)]);state.config=cfg;state.rules=Array.isArray(cfg.rules)?structuredClone(cfg.rules):[];state.auths=Array.isArray(auths.files)?auths.files.filter(a=>a.auth_index):[];$('active').checked=cfg.active===true;$('skipCloak').checked=cfg.skip_when_cloaked!==false;$('logMatches').checked=cfg.log_matches!==false;$('save').disabled=false;renderRules();renderStats(stats);setStatus(`已连接 · ${state.auths.length} 个凭证 · ${state.rules.length} 条规则`)}catch(error){setStatus(error.message,true);$('save').disabled=true}}
-    async function save(){if(!state.config)return;const ids=new Set();for(const rule of state.rules){if(!rule.id)throw new Error('规则 ID 不能为空');if(ids.has(rule.id))throw new Error(`规则 ID 重复: ${rule.id}`);ids.add(rule.id)}const next={...state.config,enabled:true,priority:Number(state.config.priority||100),active:$('active').checked,skip_when_cloaked:$('skipCloak').checked,log_matches:$('logMatches').checked,rules:state.rules};setStatus('正在保存');try{await api(configURL,{method:'PUT',body:JSON.stringify(next)});setStatus('配置已保存并触发热更新');state.config=next;setTimeout(connect,500)}catch(error){setStatus(error.message,true)}}
-    $('connect').onclick=connect;$('save').onclick=()=>save().catch(e=>setStatus(e.message,true));$('add').onclick=()=>{state.rules.push(newRule());renderRules()};if(state.key)connect();else renderRules();
+    const PLUGIN = 'claude-system-identity-injector';
+    const CONFIG_URL = `/v0/management/plugins/${PLUGIN}/config`;
+    const AUTHS_URL = `/v0/management/plugins/${PLUGIN}/auths`;
+    const STATUS_URL = `/v0/management/plugins/${PLUGIN}/status`;
+    const ARRAY_FIELDS = new Set(['providers', 'auth_ids', 'requested_models', 'upstream_models']);
+    const STAT_LABELS = {
+      seen: '已处理', matched: '已匹配', injected: '已注入', already_present: '已存在', cloak_skipped: 'Cloak 跳过', errors: '错误'
+    };
+
+    const state = {
+      key: sessionStorage.getItem(`${PLUGIN}:key`) || '',
+      config: null,
+      rules: [],
+      auths: []
+    };
+
+    function element(id) { return document.getElementById(id); }
+    function splitValues(value) { return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean); }
+    function joinValues(value) { return (value || []).join(', '); }
+    function escapeHTML(value) {
+      return String(value).replace(/[&<>\"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' })[character]);
+    }
+
+    function syncTheme() {
+      let theme = '';
+      try { theme = window.parent.document.documentElement.dataset.theme || ''; } catch (_) { /* Cross-origin fallback below. */ }
+      if (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches) theme = 'dark';
+      document.documentElement.dataset.theme = theme;
+    }
+
+    function watchParentTheme() {
+      syncTheme();
+      try {
+        const parentRoot = window.parent.document.documentElement;
+        new MutationObserver(syncTheme).observe(parentRoot, { attributes: true, attributeFilter: ['data-theme'] });
+      } catch (_) { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme); }
+    }
+
+    function requestHeaders() {
+      return { Authorization: `Bearer ${state.key}`, 'Content-Type': 'application/json' };
+    }
+
+    async function api(url, options = {}) {
+      const response = await fetch(url, { ...options, headers: { ...requestHeaders(), ...(options.headers || {}) } });
+      const responseText = await response.text();
+      let body = {};
+      try { body = responseText ? JSON.parse(responseText) : {}; } catch (_) { body = { message: responseText }; }
+      if (!response.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
+      return body;
+    }
+
+    function setConnection(label, type = '') {
+      element('connectionLabel').textContent = label;
+      element('connectionState').className = `connection-state ${type}`.trim();
+    }
+
+    function setStatus(message, type = '') {
+      element('status').textContent = message;
+      element('status').className = `status-message ${type}`.trim();
+    }
+
+    function authLabel(auth) {
+      return `${auth.label || auth.name || auth.id || auth.auth_index} · ${auth.provider || 'unknown'}`;
+    }
+
+    function createRule() {
+      return { id: `rule-${Date.now().toString(36)}`, enabled: true, providers: ['claude'], auth_ids: [], auth_indexes: [], requested_models: [], upstream_models: ['claude-*'] };
+    }
+
+    function moveRule(index, delta) {
+      const nextIndex = index + delta;
+      if (nextIndex < 0 || nextIndex >= state.rules.length) return;
+      [state.rules[index], state.rules[nextIndex]] = [state.rules[nextIndex], state.rules[index]];
+      renderRules();
+    }
+
+    function removeRule(index) {
+      state.rules.splice(index, 1);
+      renderRules();
+    }
+
+    function renderAuthOptions(rule) {
+      return state.auths.map((auth) => {
+        const index = auth.auth_index || '';
+        const selected = (rule.auth_indexes || []).includes(index) ? ' selected' : '';
+        return `<option value="${escapeHTML(index)}"${selected}>${escapeHTML(authLabel(auth))}</option>`;
+      }).join('');
+    }
+
+    function bindRuleInputs(row, rule) {
+      row.querySelectorAll('[data-key]').forEach((input) => {
+        input.addEventListener('change', () => {
+          const key = input.dataset.key;
+          if (input.type === 'checkbox') rule[key] = input.checked;
+          else if (input.multiple) rule[key] = Array.from(input.selectedOptions).map((option) => option.value).filter(Boolean);
+          else if (ARRAY_FIELDS.has(key)) rule[key] = splitValues(input.value);
+          else rule[key] = input.value.trim();
+        });
+      });
+    }
+
+    function renderRule(rule, index) {
+      const row = document.createElement('article');
+      row.className = 'rule';
+      row.innerHTML = `
+        <div class="rule-order">
+          <span class="rule-number">${index + 1}</span>
+          <button class="button icon move-up" type="button" title="上移" aria-label="上移" ${index === 0 ? 'disabled' : ''}>↑</button>
+          <button class="button icon move-down" type="button" title="下移" aria-label="下移" ${index === state.rules.length - 1 ? 'disabled' : ''}>↓</button>
+        </div>
+        <div class="rule-body">
+          <div class="rule-heading">
+            <div class="rule-name">
+              <input data-key="id" value="${escapeHTML(rule.id || '')}" aria-label="规则 ID" placeholder="规则 ID">
+              <label class="switch" title="启用规则"><input data-key="enabled" type="checkbox" ${rule.enabled ? 'checked' : ''}><span class="switch-track"></span></label>
+            </div>
+            <div class="rule-actions"><button class="button danger remove" type="button">删除规则</button></div>
+          </div>
+          <div class="rule-grid">
+            <label class="field">
+              <span class="field-label">提供商</span>
+              <input data-key="providers" value="${escapeHTML(joinValues(rule.providers))}" placeholder="claude">
+              <span class="field-hint">多个值用逗号或换行分隔</span>
+            </label>
+            <div class="field">
+              <span class="field-label">认证凭证</span>
+              <div class="auth-grid">
+                <select data-key="auth_indexes" multiple aria-label="认证凭证">${renderAuthOptions(rule)}</select>
+                <input data-key="auth_ids" value="${escapeHTML(joinValues(rule.auth_ids))}" placeholder="Auth ID，可选" aria-label="Auth ID">
+              </div>
+              <span class="field-hint">可多选已加载凭证，也可直接填写 Auth ID</span>
+            </div>
+            <div class="field wide">
+              <span class="field-label">模型条件</span>
+              <div class="model-grid">
+                <textarea data-key="requested_models" placeholder="请求模型，例如 claude-*" aria-label="请求模型">${escapeHTML(joinValues(rule.requested_models))}</textarea>
+                <textarea data-key="upstream_models" placeholder="上游模型，例如 claude-*" aria-label="上游模型">${escapeHTML(joinValues(rule.upstream_models))}</textarea>
+              </div>
+              <span class="field-hint">左侧匹配客户端请求模型，右侧匹配映射后的上游模型；支持通配符</span>
+            </div>
+          </div>
+        </div>`;
+
+      row.querySelector('.move-up').addEventListener('click', () => moveRule(index, -1));
+      row.querySelector('.move-down').addEventListener('click', () => moveRule(index, 1));
+      row.querySelector('.remove').addEventListener('click', () => removeRule(index));
+      bindRuleInputs(row, rule);
+      return row;
+    }
+
+    function renderRules() {
+      const root = element('rules');
+      root.innerHTML = '';
+      if (!state.rules.length) {
+        root.innerHTML = '<div class="empty"><strong>暂无匹配规则</strong>新增规则后，插件将按顺序处理符合条件的请求。</div>';
+        return;
+      }
+      state.rules.forEach((rule, index) => root.appendChild(renderRule(rule, index)));
+    }
+
+    function renderStats(data = {}) {
+      element('stats').innerHTML = Object.entries(STAT_LABELS).map(([key, label]) => `<span class="stat">${label}<b>${data[key] ?? 0}</b></span>`).join('');
+    }
+
+    async function connect() {
+      state.key = element('key').value.trim();
+      if (!state.key) {
+        setConnection('未连接', 'error');
+        setStatus('请输入管理密钥。', 'error');
+        return;
+      }
+
+      sessionStorage.setItem(`${PLUGIN}:key`, state.key);
+      setConnection('连接中');
+      setStatus('正在读取配置和运行状态...');
+      element('connect').disabled = true;
+
+      try {
+        const [config, auths, stats] = await Promise.all([api(CONFIG_URL), api(AUTHS_URL), api(STATUS_URL)]);
+        state.config = config;
+        state.rules = Array.isArray(config.rules) ? structuredClone(config.rules) : [];
+        state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index) : [];
+        element('active').checked = config.active === true;
+        element('skipCloak').checked = config.skip_when_cloaked !== false;
+        element('logMatches').checked = config.log_matches !== false;
+        element('save').disabled = false;
+        renderRules();
+        renderStats(stats);
+        setConnection('已连接', 'connected');
+        setStatus(`已加载 ${state.auths.length} 个凭证和 ${state.rules.length} 条规则。`, 'success');
+      } catch (error) {
+        setConnection('连接失败', 'error');
+        setStatus(error.message, 'error');
+        element('save').disabled = true;
+      } finally {
+        element('connect').disabled = false;
+      }
+    }
+
+    function validateRules() {
+      const ids = new Set();
+      for (const rule of state.rules) {
+        if (!rule.id) throw new Error('规则 ID 不能为空');
+        if (ids.has(rule.id)) throw new Error(`规则 ID 重复: ${rule.id}`);
+        ids.add(rule.id);
+      }
+    }
+
+    async function save() {
+      if (!state.config) return;
+      validateRules();
+      const nextConfig = {
+        ...state.config,
+        enabled: true,
+        priority: Number(state.config.priority || 100),
+        active: element('active').checked,
+        skip_when_cloaked: element('skipCloak').checked,
+        log_matches: element('logMatches').checked,
+        rules: state.rules
+      };
+
+      element('save').disabled = true;
+      setStatus('正在保存配置...');
+      try {
+        await api(CONFIG_URL, { method: 'PUT', body: JSON.stringify(nextConfig) });
+        state.config = nextConfig;
+        setStatus('配置已保存并触发热更新。', 'success');
+        setTimeout(connect, 500);
+      } catch (error) {
+        setStatus(error.message, 'error');
+        element('save').disabled = false;
+      }
+    }
+
+    watchParentTheme();
+    element('key').value = state.key;
+    element('connect').addEventListener('click', connect);
+    element('key').addEventListener('keydown', (event) => { if (event.key === 'Enter') connect(); });
+    element('save').addEventListener('click', () => save().catch((error) => setStatus(error.message, 'error')));
+    element('add').addEventListener('click', () => { state.rules.push(createRule()); renderRules(); });
+    renderStats();
+    renderRules();
+    if (state.key) connect();
   </script>
 </body>
 </html>
-
