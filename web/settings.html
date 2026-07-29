@@ -46,6 +46,7 @@
       --border-color: #3a3530;
       --border-primary: #4a453f;
       --primary-hover: #9a948e;
+      --danger-color: #f1b0a6;
     }
 
     * { box-sizing: border-box; }
@@ -327,7 +328,7 @@
     .condition-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .condition-title { color: var(--text-primary); font-size: 12px; font-weight: 700; }
     .condition-controls { min-width: 0; transition: opacity .15s ease; }
-    .condition.disabled .condition-controls { pointer-events: none; opacity: .42; }
+    .condition.disabled .condition-controls { pointer-events: none; }
     .option-list {
       display: grid;
       max-height: 190px;
