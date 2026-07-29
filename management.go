@@ -1,0 +1,125 @@
+package main
+
+import (
+	_ "embed"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+)
+
+//go:embed web/settings.html
+var settingsPage []byte
+
+type managementRegistrationResponse struct {
+	Routes    []managementRoute `json:"Routes,omitempty"`
+	Resources []resourceRoute   `json:"Resources,omitempty"`
+}
+
+type managementRoute struct {
+	Method      string `json:"Method"`
+	Path        string `json:"Path"`
+	Description string `json:"Description"`
+}
+
+type resourceRoute struct {
+	Path        string `json:"Path"`
+	Menu        string `json:"Menu"`
+	Description string `json:"Description"`
+}
+
+type managementRequest struct {
+	Method         string              `json:"Method"`
+	Path           string              `json:"Path"`
+	Headers        map[string][]string `json:"Headers"`
+	Body           []byte              `json:"Body"`
+	HostCallbackID string              `json:"host_callback_id"`
+}
+
+type managementResponse struct {
+	StatusCode int                 `json:"StatusCode"`
+	Headers    map[string][]string `json:"Headers"`
+	Body       []byte              `json:"Body"`
+}
+
+type authListResponse struct {
+	Files []authSummary `json:"files"`
+}
+
+type authSummary struct {
+	ID          string `json:"id,omitempty"`
+	AuthIndex   string `json:"auth_index,omitempty"`
+	Name        string `json:"name"`
+	Provider    string `json:"provider,omitempty"`
+	Label       string `json:"label,omitempty"`
+	Disabled    bool   `json:"disabled,omitempty"`
+	RuntimeOnly bool   `json:"runtime_only,omitempty"`
+}
+
+func managementRegistration() managementRegistrationResponse {
+	base := "/plugins/" + pluginID
+	return managementRegistrationResponse{
+		Routes: []managementRoute{
+			{Method: http.MethodGet, Path: base + "/auths", Description: "Non-sensitive runtime credential summaries."},
+			{Method: http.MethodGet, Path: base + "/status", Description: "Plugin runtime counters and effective state."},
+		},
+		Resources: []resourceRoute{{
+			Path:        "/settings",
+			Menu:        "Claude 身份注入",
+			Description: "按提供商、凭证和模型配置 Claude system 首位身份提示词。",
+		}},
+	}
+}
+
+func handleManagement(raw []byte) ([]byte, error) {
+	var req managementRequest
+	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
+		return nil, fmt.Errorf("decode management request: %w", errUnmarshal)
+	}
+	path := strings.TrimRight(req.Path, "/")
+	switch {
+	case strings.HasSuffix(path, "/settings"):
+		return okEnvelope(managementHTTPResponse(http.StatusOK, "text/html; charset=utf-8", settingsPage))
+	case strings.HasSuffix(path, "/auths"):
+		result, errCall := callHost("host.auth.list", map[string]any{"host_callback_id": req.HostCallbackID})
+		if errCall != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errCall.Error()}))
+		}
+		var auths authListResponse
+		if errUnmarshal := json.Unmarshal(result, &auths); errUnmarshal != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errUnmarshal.Error()}))
+		}
+		return okEnvelope(managementJSONResponse(http.StatusOK, auths))
+	case strings.HasSuffix(path, "/status"):
+		cfg := currentConfig()
+		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{
+			"active":          cfg.Active,
+			"rules":           len(cfg.Rules),
+			"identity":        identityPrompt,
+			"seen":            counters.seen.Load(),
+			"matched":         counters.matched.Load(),
+			"injected":        counters.injected.Load(),
+			"already_present": counters.already.Load(),
+			"cloak_skipped":   counters.cloakSkipped.Load(),
+			"errors":          counters.errors.Load(),
+		}))
+	default:
+		return okEnvelope(managementJSONResponse(http.StatusNotFound, map[string]any{"error": "not_found"}))
+	}
+}
+
+func managementHTTPResponse(status int, contentType string, body []byte) managementResponse {
+	return managementResponse{
+		StatusCode: status,
+		Headers: map[string][]string{
+			"content-type":  []string{contentType},
+			"cache-control": []string{"no-store"},
+		},
+		Body: body,
+	}
+}
+
+func managementJSONResponse(status int, value any) managementResponse {
+	body, _ := json.Marshal(value)
+	return managementHTTPResponse(status, "application/json; charset=utf-8", body)
+}

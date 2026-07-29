@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Claude 身份注入</title>
+  <style>
+    :root{color-scheme:light dark;font-family:Inter,"Segoe UI",system-ui,sans-serif;color:#18212b;background:#f5f7f9}*{box-sizing:border-box}body{margin:0;background:#f5f7f9;color:#18212b;font-size:14px}button,input,textarea,select{font:inherit}button{cursor:pointer}.page{min-height:100vh}.toolbar{position:sticky;top:0;z-index:3;display:flex;align-items:center;gap:10px;min-height:58px;padding:10px 18px;border-bottom:1px solid #d8dee5;background:#fff}.toolbar h1{font-size:17px;margin:0;margin-right:auto}.key{width:min(280px,34vw)}input,textarea,select{border:1px solid #b9c3cd;border-radius:5px;background:#fff;color:#18212b;padding:8px 9px;min-width:0}textarea{resize:vertical;min-height:62px}.btn{border:1px solid #aeb9c4;border-radius:5px;background:#fff;color:#18212b;padding:8px 12px}.btn.primary{background:#126b5b;border-color:#126b5b;color:#fff}.btn.danger{color:#a12b2b}.icon{width:32px;height:32px;padding:0;font-size:18px}.content{max-width:1180px;margin:0 auto;padding:18px}.status{display:flex;align-items:center;gap:10px;min-height:34px;margin-bottom:14px;color:#53616f}.status.error{color:#b42318}.settings{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;padding:14px 0 18px;border-bottom:1px solid #d8dee5}.field{display:flex;flex-direction:column;gap:6px}.check{display:flex;align-items:center;gap:8px;min-height:38px}.check input{width:16px;height:16px}.identity{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;background:#eaf0f3;padding:10px 12px;border-left:3px solid #126b5b;overflow-wrap:anywhere}.sectionHead{display:flex;align-items:center;gap:10px;margin:18px 0 10px}.sectionHead h2{font-size:15px;margin:0;margin-right:auto}.rule{display:grid;grid-template-columns:36px minmax(130px,.8fr) minmax(130px,1fr) minmax(180px,1.2fr) minmax(150px,1fr) 92px;gap:10px;align-items:start;padding:12px 0;border-top:1px solid #d8dee5}.rule:first-child{border-top:0}.ruleOrder{display:flex;flex-direction:column;gap:5px}.ruleFields{display:grid;grid-template-columns:1fr 1fr;gap:8px}.rule label{display:flex;flex-direction:column;gap:5px;color:#53616f;font-size:12px}.rule input,.rule textarea,.rule select{width:100%;font-size:13px}.rule select{min-height:96px}.ruleActions{display:flex;gap:6px;justify-content:flex-end}.empty{padding:28px 0;color:#687684;text-align:center;border-top:1px solid #d8dee5}.cloak{margin-top:14px;padding:10px 12px;background:#fff4dc;border-left:3px solid #b97800;color:#644500}.stats{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;color:#53616f}.stats b{color:#18212b}@media(max-width:900px){.toolbar{flex-wrap:wrap}.toolbar h1{width:100%}.key{width:100%;flex:1}.settings{grid-template-columns:1fr}.rule{grid-template-columns:32px 1fr}.rule>.ruleFields,.rule>label,.rule>.ruleActions{grid-column:2}.content{padding:14px}}@media(prefers-color-scheme:dark){:root{color:#e6edf3;background:#11161c}body{background:#11161c;color:#e6edf3}.toolbar,input,textarea,select,.btn{background:#171e26;color:#e6edf3;border-color:#3a4652}.content{color:#e6edf3}.identity{background:#1b2b2a}.status,.rule label,.stats{color:#aab6c2}.stats b{color:#e6edf3}.cloak{background:#332a17;color:#ead49b}.settings,.rule,.toolbar{border-color:#34404b}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="toolbar">
+      <h1>Claude 身份注入</h1>
+      <input id="key" class="key" type="password" autocomplete="current-password" placeholder="管理密钥">
+      <button id="connect" class="btn">连接</button>
+      <button id="save" class="btn primary" disabled>保存</button>
+    </header>
+    <main class="content">
+      <div id="status" class="status">未连接</div>
+      <div class="identity">You are Claude Code, Anthropic's official CLI for Claude.</div>
+      <section class="settings">
+        <label class="check"><input id="active" type="checkbox">启用身份注入</label>
+        <label class="check"><input id="skipCloak" type="checkbox" checked>检测到 CPA Cloak 时跳过</label>
+        <label class="check"><input id="logMatches" type="checkbox" checked>记录命中与注入日志</label>
+      </section>
+      <div class="cloak">要保证身份文本严格位于 system[0]，匹配凭证的 CPA Cloak 应设置为 never。</div>
+      <div class="sectionHead"><h2>匹配规则</h2><button id="add" class="btn">新增规则</button></div>
+      <div id="rules"></div>
+      <div id="stats" class="stats"></div>
+    </main>
+  </div>
+  <script>
+    const PLUGIN='claude-system-identity-injector';
+    const configURL=`/v0/management/plugins/${PLUGIN}/config`;
+    const authURL=`/v0/management/plugins/${PLUGIN}/auths`;
+    const statusURL=`/v0/management/plugins/${PLUGIN}/status`;
+    const state={key:sessionStorage.getItem(`${PLUGIN}:key`)||'',config:null,rules:[],auths:[]};
+    const $=id=>document.getElementById(id);
+    $('key').value=state.key;
+    function headers(){return {'Authorization':`Bearer ${state.key}`,'Content-Type':'application/json'}}
+    function setStatus(text,error=false){$('status').textContent=text;$('status').className=`status${error?' error':''}`}
+    function split(value){return value.split(/[\n,]/).map(v=>v.trim()).filter(Boolean)}
+    function join(value){return (value||[]).join(', ')}
+    async function api(url,options={}){const response=await fetch(url,{...options,headers:{...headers(),...(options.headers||{})}});const text=await response.text();let body={};try{body=text?JSON.parse(text):{}}catch{body={message:text}}if(!response.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);return body}
+    function authLabel(auth){return `${auth.label||auth.name||auth.id||auth.auth_index} · ${auth.provider||'unknown'}`}
+    function newRule(){return{id:`rule-${Date.now().toString(36)}`,enabled:true,providers:['claude'],auth_ids:[],auth_indexes:[],requested_models:[],upstream_models:['claude-*']}}
+    function move(index,delta){const next=index+delta;if(next<0||next>=state.rules.length)return;[state.rules[index],state.rules[next]]=[state.rules[next],state.rules[index]];renderRules()}
+    function removeRule(index){state.rules.splice(index,1);renderRules()}
+    function renderRules(){const root=$('rules');root.innerHTML='';if(!state.rules.length){root.innerHTML='<div class="empty">暂无规则</div>';return}state.rules.forEach((rule,index)=>{const row=document.createElement('div');row.className='rule';row.innerHTML=`
+      <div class="ruleOrder"><button class="btn icon" title="上移">↑</button><button class="btn icon" title="下移">↓</button></div>
+      <div class="ruleFields"><label>规则 ID<input data-k="id" value="${escapeHTML(rule.id||'')}"></label><label class="check"><input data-k="enabled" type="checkbox" ${rule.enabled?'checked':''}>启用</label></div>
+      <label>提供商<input data-k="providers" value="${escapeHTML(join(rule.providers))}" placeholder="claude"></label>
+      <label>认证凭证<select data-k="auth_indexes" multiple>${state.auths.map(a=>`<option value="${escapeHTML(a.auth_index||'')}" ${(rule.auth_indexes||[]).includes(a.auth_index)?'selected':''}>${escapeHTML(authLabel(a))}</option>`).join('')}</select><input data-k="auth_ids" value="${escapeHTML(join(rule.auth_ids))}" placeholder="Auth ID，可选"></label>
+      <div class="ruleFields"><label>请求模型<textarea data-k="requested_models" placeholder="claude-*">${escapeHTML(join(rule.requested_models))}</textarea></label><label>上游模型<textarea data-k="upstream_models" placeholder="claude-*">${escapeHTML(join(rule.upstream_models))}</textarea></label></div>
+      <div class="ruleActions"><button class="btn danger" title="删除">删除</button></div>`;
+      const order=row.querySelectorAll('.ruleOrder button');order[0].onclick=()=>move(index,-1);order[1].onclick=()=>move(index,1);row.querySelector('.ruleActions button').onclick=()=>removeRule(index);
+      row.querySelectorAll('[data-k]').forEach(input=>{input.onchange=()=>{const key=input.dataset.k;if(input.type==='checkbox')rule[key]=input.checked;else if(input.multiple)rule[key]=Array.from(input.selectedOptions).map(o=>o.value).filter(Boolean);else if(['providers','auth_ids','requested_models','upstream_models'].includes(key))rule[key]=split(input.value);else rule[key]=input.value.trim()}});root.appendChild(row)})}
+    function escapeHTML(value){return String(value).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+    function renderStats(data){$('stats').innerHTML=['seen','matched','injected','already_present','cloak_skipped','errors'].map(k=>`<span>${k}: <b>${data[k]??0}</b></span>`).join('')}
+    async function connect(){state.key=$('key').value.trim();if(!state.key){setStatus('请输入管理密钥',true);return}sessionStorage.setItem(`${PLUGIN}:key`,state.key);setStatus('正在读取配置');try{const [cfg,auths,stats]=await Promise.all([api(configURL),api(authURL),api(statusURL)]);state.config=cfg;state.rules=Array.isArray(cfg.rules)?structuredClone(cfg.rules):[];state.auths=Array.isArray(auths.files)?auths.files.filter(a=>a.auth_index):[];$('active').checked=cfg.active===true;$('skipCloak').checked=cfg.skip_when_cloaked!==false;$('logMatches').checked=cfg.log_matches!==false;$('save').disabled=false;renderRules();renderStats(stats);setStatus(`已连接 · ${state.auths.length} 个凭证 · ${state.rules.length} 条规则`)}catch(error){setStatus(error.message,true);$('save').disabled=true}}
+    async function save(){if(!state.config)return;const ids=new Set();for(const rule of state.rules){if(!rule.id)throw new Error('规则 ID 不能为空');if(ids.has(rule.id))throw new Error(`规则 ID 重复: ${rule.id}`);ids.add(rule.id)}const next={...state.config,enabled:true,priority:Number(state.config.priority||100),active:$('active').checked,skip_when_cloaked:$('skipCloak').checked,log_matches:$('logMatches').checked,rules:state.rules};setStatus('正在保存');try{await api(configURL,{method:'PUT',body:JSON.stringify(next)});setStatus('配置已保存并触发热更新');state.config=next;setTimeout(connect,500)}catch(error){setStatus(error.message,true)}}
+    $('connect').onclick=connect;$('save').onclick=()=>save().catch(e=>setStatus(e.message,true));$('add').onclick=()=>{state.rules.push(newRule());renderRules()};if(state.key)connect();else renderRules();
+  </script>
+</body>
+</html>
+
