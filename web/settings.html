@@ -313,8 +313,47 @@
 
     .rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .rule-grid .wide { grid-column: 1 / -1; }
-    .auth-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, .7fr); gap: 10px; }
-    .model-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .condition {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 9px;
+      padding: 12px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--bg-secondary) 58%, transparent);
+    }
+
+    .condition-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .condition-title { color: var(--text-primary); font-size: 12px; font-weight: 700; }
+    .condition-controls { min-width: 0; transition: opacity .15s ease; }
+    .condition.disabled .condition-controls { pointer-events: none; opacity: .42; }
+    .option-list {
+      display: grid;
+      max-height: 190px;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 6px;
+      overflow-y: auto;
+    }
+
+    .option-item {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 9px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .option-item:hover { border-color: var(--primary-color); background: var(--bg-hover); }
+    .option-item input { width: 15px; min-height: 15px; flex: 0 0 auto; accent-color: var(--primary-color); }
+    .option-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .option-empty { padding: 10px; color: var(--text-tertiary); font-size: 12px; text-align: center; }
 
     .empty { padding: 42px 20px; color: var(--text-secondary); text-align: center; }
     .empty strong { display: block; margin-bottom: 5px; color: var(--text-primary); }
@@ -326,7 +365,7 @@
       .toolbar { grid-template-columns: 1fr auto; align-items: end; }
       .toolbar .field { grid-column: 1 / -1; }
       .toolbar-spacer { display: none; }
-      .rule-grid, .auth-grid, .model-grid { grid-template-columns: minmax(0, 1fr); }
+      .rule-grid { grid-template-columns: minmax(0, 1fr); }
       .rule-grid .wide { grid-column: auto; }
       .rule-heading { align-items: flex-start; }
       .rule-name { align-items: flex-start; flex-direction: column-reverse; flex: 1; }
@@ -385,8 +424,12 @@
           <label class="switch"><input id="active" type="checkbox" aria-label="启用身份注入"><span class="switch-track"></span></label>
         </div>
         <div class="setting-row">
-          <div class="setting-copy"><strong>检测到 CPA Cloak 时跳过</strong><span>避免插件提示词与 Cloak 的 system 注入互相覆盖或改变顺序。</span></div>
-          <label class="switch"><input id="skipCloak" type="checkbox" checked aria-label="检测到 CPA Cloak 时跳过"><span class="switch-track"></span></label>
+          <div class="setting-copy"><strong>CPA Cloak 兼容模式</strong><span>兼容模式会保留 billing header 在 system[0]，识别 Cloak 已注入的身份并避免重复。</span></div>
+          <select id="cloakHandling" aria-label="CPA Cloak 兼容模式">
+            <option value="compatible">兼容 Cloak（推荐）</option>
+            <option value="skip">检测到 Cloak 时跳过</option>
+            <option value="prepend">始终放到 system[0]</option>
+          </select>
         </div>
         <div class="setting-row">
           <div class="setting-copy"><strong>记录匹配日志</strong><span>在 CPA 主日志中记录规则命中、注入、跳过与错误事件，不记录凭证秘密。</span></div>
@@ -399,7 +442,7 @@
       </div>
       <div class="warning">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
-        <span><strong>Cloak 顺序提示：</strong>要保证身份文本严格位于 system[0]，匹配凭证的 CPA Cloak 应设置为 never。</span>
+        <span><strong>Cloak 兼容说明：</strong>兼容模式下，Cloak 的 billing header 保持在 system[0]，Claude Code 身份位于其后；Cloak 已包含该身份时插件不会重复注入。</span>
       </div>
     </section>
 
@@ -421,7 +464,7 @@
     const CONFIG_URL = `/v0/management/plugins/${PLUGIN}/config`;
     const AUTHS_URL = `/v0/management/plugins/${PLUGIN}/auths`;
     const STATUS_URL = `/v0/management/plugins/${PLUGIN}/status`;
-    const ARRAY_FIELDS = new Set(['providers', 'auth_ids', 'requested_models', 'upstream_models']);
+    const AUTH_MODELS_URL = '/v0/management/auth-files/models';
     const STAT_LABELS = {
       seen: '已处理', matched: '已匹配', injected: '已注入', already_present: '已存在', cloak_skipped: 'Cloak 跳过', errors: '错误'
     };
@@ -430,12 +473,11 @@
       key: sessionStorage.getItem(`${PLUGIN}:key`) || '',
       config: null,
       rules: [],
-      auths: []
+      auths: [],
+      models: []
     };
 
     function element(id) { return document.getElementById(id); }
-    function splitValues(value) { return value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean); }
-    function joinValues(value) { return (value || []).join(', '); }
     function escapeHTML(value) {
       return String(value).replace(/[&<>\"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' })[character]);
     }
@@ -483,7 +525,19 @@
     }
 
     function createRule() {
-      return { id: `rule-${Date.now().toString(36)}`, enabled: true, providers: ['claude'], auth_ids: [], auth_indexes: [], requested_models: [], upstream_models: ['claude-*'] };
+      return {
+        id: `rule-${Date.now().toString(36)}`,
+        enabled: true,
+        match_providers: false,
+        match_auths: false,
+        match_requested_models: false,
+        match_upstream_models: false,
+        providers: [],
+        auth_ids: [],
+        auth_indexes: [],
+        requested_models: [],
+        upstream_models: []
+      };
     }
 
     function moveRule(index, delta) {
@@ -498,12 +552,37 @@
       renderRules();
     }
 
-    function renderAuthOptions(rule) {
-      return state.auths.map((auth) => {
-        const index = auth.auth_index || '';
-        const selected = (rule.auth_indexes || []).includes(index) ? ' selected' : '';
-        return `<option value="${escapeHTML(index)}"${selected}>${escapeHTML(authLabel(auth))}</option>`;
-      }).join('');
+    function renderChoiceList(field, options, selectedValues) {
+      if (!options.length) return '<div class="option-empty">当前没有可选项</div>';
+      return `<div class="option-list">${options.map((option) => `
+        <label class="option-item" title="${escapeHTML(option.label)}">
+          <input type="checkbox" data-choice="${field}" value="${escapeHTML(option.value)}" ${(selectedValues || []).includes(option.value) ? 'checked' : ''}>
+          <span>${escapeHTML(option.label)}</span>
+        </label>`).join('')}</div>`;
+    }
+
+    function providerChoices() {
+      const providers = [...new Set(state.auths.map((auth) => auth.provider).filter(Boolean))].sort();
+      return providers.map((provider) => ({ value: provider, label: provider }));
+    }
+
+    function authChoices() {
+      return state.auths.map((auth) => ({ value: auth.auth_index || '', label: authLabel(auth) })).filter((auth) => auth.value);
+    }
+
+    function modelChoices() {
+      return state.models.map((model) => ({ value: model.id, label: model.label }));
+    }
+
+    function isMatchEnabled(rule, key, legacyValues) {
+      if (typeof rule[key] === 'boolean') return rule[key];
+      return legacyValues.some((values) => Array.isArray(values) && values.length > 0);
+    }
+
+    function updateConditionState(input) {
+      const condition = input.closest('.condition');
+      condition.classList.toggle('disabled', !input.checked);
+      condition.querySelectorAll('.condition-controls input').forEach((control) => { control.disabled = !input.checked; });
     }
 
     function bindRuleInputs(row, rule) {
@@ -512,13 +591,23 @@
           const key = input.dataset.key;
           if (input.type === 'checkbox') rule[key] = input.checked;
           else if (input.multiple) rule[key] = Array.from(input.selectedOptions).map((option) => option.value).filter(Boolean);
-          else if (ARRAY_FIELDS.has(key)) rule[key] = splitValues(input.value);
           else rule[key] = input.value.trim();
+          if (input.classList.contains('condition-toggle')) updateConditionState(input);
+        });
+      });
+      row.querySelectorAll('[data-choice]').forEach((input) => {
+        input.addEventListener('change', () => {
+          const key = input.dataset.choice;
+          rule[key] = Array.from(row.querySelectorAll(`[data-choice="${key}"]:checked`)).map((choice) => choice.value);
         });
       });
     }
 
     function renderRule(rule, index) {
+      const matchProviders = isMatchEnabled(rule, 'match_providers', [rule.providers]);
+      const matchAuths = isMatchEnabled(rule, 'match_auths', [rule.auth_ids, rule.auth_indexes]);
+      const matchRequestedModels = isMatchEnabled(rule, 'match_requested_models', [rule.requested_models]);
+      const matchUpstreamModels = isMatchEnabled(rule, 'match_upstream_models', [rule.upstream_models]);
       const row = document.createElement('article');
       row.className = 'rule';
       row.innerHTML = `
@@ -536,26 +625,25 @@
             <div class="rule-actions"><button class="button danger remove" type="button">删除规则</button></div>
           </div>
           <div class="rule-grid">
-            <label class="field">
-              <span class="field-label">提供商</span>
-              <input data-key="providers" value="${escapeHTML(joinValues(rule.providers))}" placeholder="claude">
-              <span class="field-hint">多个值用逗号或换行分隔</span>
-            </label>
-            <div class="field">
-              <span class="field-label">认证凭证</span>
-              <div class="auth-grid">
-                <select data-key="auth_indexes" multiple aria-label="认证凭证">${renderAuthOptions(rule)}</select>
-                <input data-key="auth_ids" value="${escapeHTML(joinValues(rule.auth_ids))}" placeholder="Auth ID，可选" aria-label="Auth ID">
-              </div>
-              <span class="field-hint">可多选已加载凭证，也可直接填写 Auth ID</span>
+            <div class="condition ${matchProviders ? '' : 'disabled'}">
+              <div class="condition-header"><span class="condition-title">提供商</span><label class="switch"><input class="condition-toggle" data-key="match_providers" type="checkbox" ${matchProviders ? 'checked' : ''} aria-label="启用提供商条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls">${renderChoiceList('providers', providerChoices(), rule.providers)}</div>
+              <span class="field-hint">从当前已加载 Auth 的提供商中选择</span>
             </div>
-            <div class="field wide">
-              <span class="field-label">模型条件</span>
-              <div class="model-grid">
-                <textarea data-key="requested_models" placeholder="请求模型，例如 claude-*" aria-label="请求模型">${escapeHTML(joinValues(rule.requested_models))}</textarea>
-                <textarea data-key="upstream_models" placeholder="上游模型，例如 claude-*" aria-label="上游模型">${escapeHTML(joinValues(rule.upstream_models))}</textarea>
-              </div>
-              <span class="field-hint">左侧匹配客户端请求模型，右侧匹配映射后的上游模型；支持通配符</span>
+            <div class="condition ${matchAuths ? '' : 'disabled'}">
+              <div class="condition-header"><span class="condition-title">Auth 文件</span><label class="switch"><input class="condition-toggle" data-key="match_auths" type="checkbox" ${matchAuths ? 'checked' : ''} aria-label="启用 Auth 文件条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls">${renderChoiceList('auth_indexes', authChoices(), rule.auth_indexes)}</div>
+              <span class="field-hint">可多选当前 CPA 已加载的认证文件</span>
+            </div>
+            <div class="condition ${matchRequestedModels ? '' : 'disabled'}">
+              <div class="condition-header"><span class="condition-title">请求模型</span><label class="switch"><input class="condition-toggle" data-key="match_requested_models" type="checkbox" ${matchRequestedModels ? 'checked' : ''} aria-label="启用请求模型条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls">${renderChoiceList('requested_models', modelChoices(), rule.requested_models)}</div>
+              <span class="field-hint">客户端请求中使用的模型名称</span>
+            </div>
+            <div class="condition ${matchUpstreamModels ? '' : 'disabled'}">
+              <div class="condition-header"><span class="condition-title">上游模型</span><label class="switch"><input class="condition-toggle" data-key="match_upstream_models" type="checkbox" ${matchUpstreamModels ? 'checked' : ''} aria-label="启用上游模型条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls">${renderChoiceList('upstream_models', modelChoices(), rule.upstream_models)}</div>
+              <span class="field-hint">完成映射后实际发送给提供商的模型</span>
             </div>
           </div>
         </div>`;
@@ -564,6 +652,7 @@
       row.querySelector('.move-down').addEventListener('click', () => moveRule(index, 1));
       row.querySelector('.remove').addEventListener('click', () => removeRule(index));
       bindRuleInputs(row, rule);
+      row.querySelectorAll('.condition-toggle').forEach(updateConditionState);
       return row;
     }
 
@@ -579,6 +668,25 @@
 
     function renderStats(data = {}) {
       element('stats').innerHTML = Object.entries(STAT_LABELS).map(([key, label]) => `<span class="stat">${label}<b>${data[key] ?? 0}</b></span>`).join('');
+    }
+
+    async function loadModelCatalog() {
+      const requests = state.auths.map(async (auth) => {
+        const name = auth.name || auth.id || auth.auth_index;
+        if (!name) return [];
+        const response = await api(`${AUTH_MODELS_URL}?name=${encodeURIComponent(name)}`);
+        return Array.isArray(response.models) ? response.models : [];
+      });
+      const results = await Promise.allSettled(requests);
+      const modelsByID = new Map();
+      results.forEach((result) => {
+        if (result.status !== 'fulfilled') return;
+        result.value.forEach((model) => {
+          if (!model.id || modelsByID.has(model.id)) return;
+          modelsByID.set(model.id, { id: model.id, label: model.display_name ? `${model.display_name} · ${model.id}` : model.id });
+        });
+      });
+      state.models = [...modelsByID.values()].sort((left, right) => left.label.localeCompare(right.label));
     }
 
     async function connect() {
@@ -599,14 +707,15 @@
         state.config = config;
         state.rules = Array.isArray(config.rules) ? structuredClone(config.rules) : [];
         state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index) : [];
+        await loadModelCatalog();
         element('active').checked = config.active === true;
-        element('skipCloak').checked = config.skip_when_cloaked !== false;
+        element('cloakHandling').value = config.cloak_handling || (config.skip_when_cloaked === false ? 'prepend' : 'compatible');
         element('logMatches').checked = config.log_matches !== false;
         element('save').disabled = false;
         renderRules();
         renderStats(stats);
         setConnection('已连接', 'connected');
-        setStatus(`已加载 ${state.auths.length} 个凭证和 ${state.rules.length} 条规则。`, 'success');
+        setStatus(`已加载 ${state.auths.length} 个凭证、${state.models.length} 个模型和 ${state.rules.length} 条规则。`, 'success');
       } catch (error) {
         setConnection('连接失败', 'error');
         setStatus(error.message, 'error');
@@ -621,6 +730,10 @@
       for (const rule of state.rules) {
         if (!rule.id) throw new Error('规则 ID 不能为空');
         if (ids.has(rule.id)) throw new Error(`规则 ID 重复: ${rule.id}`);
+        if (rule.match_providers && !(rule.providers || []).length) throw new Error(`规则 ${rule.id} 已启用提供商条件，但尚未选择提供商`);
+        if (rule.match_auths && !(rule.auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用 Auth 文件条件，但尚未选择文件`);
+        if (rule.match_requested_models && !(rule.requested_models || []).length) throw new Error(`规则 ${rule.id} 已启用请求模型条件，但尚未选择模型`);
+        if (rule.match_upstream_models && !(rule.upstream_models || []).length) throw new Error(`规则 ${rule.id} 已启用上游模型条件，但尚未选择模型`);
         ids.add(rule.id);
       }
     }
@@ -633,9 +746,10 @@
         enabled: true,
         priority: Number(state.config.priority || 100),
         active: element('active').checked,
-        skip_when_cloaked: element('skipCloak').checked,
+        cloak_handling: element('cloakHandling').value,
+        skip_when_cloaked: element('cloakHandling').value === 'skip',
         log_matches: element('logMatches').checked,
-        rules: state.rules
+        rules: state.rules.map((rule) => ({ ...rule, auth_ids: [] }))
       };
 
       element('save').disabled = true;

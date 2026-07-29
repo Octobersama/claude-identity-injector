@@ -14,19 +14,24 @@ type config struct {
 	Enabled         bool   `yaml:"enabled" json:"enabled"`
 	Priority        int    `yaml:"priority" json:"priority"`
 	Active          bool   `yaml:"active" json:"active"`
+	CloakHandling   string `yaml:"cloak_handling" json:"cloak_handling"`
 	SkipWhenCloaked *bool  `yaml:"skip_when_cloaked" json:"skip_when_cloaked"`
 	LogMatches      *bool  `yaml:"log_matches" json:"log_matches"`
 	Rules           []rule `yaml:"rules" json:"rules"`
 }
 
 type rule struct {
-	ID              string   `yaml:"id" json:"id"`
-	Enabled         bool     `yaml:"enabled" json:"enabled"`
-	Providers       []string `yaml:"providers" json:"providers"`
-	AuthIDs         []string `yaml:"auth_ids" json:"auth_ids"`
-	AuthIndexes     []string `yaml:"auth_indexes" json:"auth_indexes"`
-	RequestedModels []string `yaml:"requested_models" json:"requested_models"`
-	UpstreamModels  []string `yaml:"upstream_models" json:"upstream_models"`
+	ID                   string   `yaml:"id" json:"id"`
+	Enabled              bool     `yaml:"enabled" json:"enabled"`
+	MatchProviders       *bool    `yaml:"match_providers" json:"match_providers"`
+	MatchAuths           *bool    `yaml:"match_auths" json:"match_auths"`
+	MatchRequestedModels *bool    `yaml:"match_requested_models" json:"match_requested_models"`
+	MatchUpstreamModels  *bool    `yaml:"match_upstream_models" json:"match_upstream_models"`
+	Providers            []string `yaml:"providers" json:"providers"`
+	AuthIDs              []string `yaml:"auth_ids" json:"auth_ids"`
+	AuthIndexes          []string `yaml:"auth_indexes" json:"auth_indexes"`
+	RequestedModels      []string `yaml:"requested_models" json:"requested_models"`
+	UpstreamModels       []string `yaml:"upstream_models" json:"upstream_models"`
 
 	requestedPatterns []*regexp.Regexp
 	upstreamPatterns  []*regexp.Regexp
@@ -67,6 +72,7 @@ func defaultConfig() config {
 		Enabled:         true,
 		Priority:        100,
 		Active:          false,
+		CloakHandling:   "compatible",
 		SkipWhenCloaked: &skip,
 		LogMatches:      &logs,
 		Rules:           []rule{},
@@ -134,6 +140,17 @@ func parseConfig(raw []byte) (config, error) {
 		value := true
 		next.LogMatches = &value
 	}
+	next.CloakHandling = strings.ToLower(strings.TrimSpace(next.CloakHandling))
+	if next.CloakHandling == "" {
+		if next.SkipWhenCloaked != nil && *next.SkipWhenCloaked {
+			next.CloakHandling = "skip"
+		} else {
+			next.CloakHandling = "prepend"
+		}
+	}
+	if next.CloakHandling != "compatible" && next.CloakHandling != "skip" && next.CloakHandling != "prepend" {
+		return config{}, fmt.Errorf("cloak_handling must be compatible, skip, or prepend")
+	}
 	seen := make(map[string]struct{}, len(next.Rules))
 	for index := range next.Rules {
 		rule := &next.Rules[index]
@@ -150,6 +167,10 @@ func parseConfig(raw []byte) (config, error) {
 		rule.AuthIndexes = cleanList(rule.AuthIndexes)
 		rule.RequestedModels = cleanList(rule.RequestedModels)
 		rule.UpstreamModels = cleanList(rule.UpstreamModels)
+		setMatchDefault(&rule.MatchProviders, len(rule.Providers) > 0)
+		setMatchDefault(&rule.MatchAuths, len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0)
+		setMatchDefault(&rule.MatchRequestedModels, len(rule.RequestedModels) > 0)
+		setMatchDefault(&rule.MatchUpstreamModels, len(rule.UpstreamModels) > 0)
 		var errCompile error
 		rule.requestedPatterns, errCompile = compileGlobs(rule.RequestedModels)
 		if errCompile != nil {
@@ -161,6 +182,13 @@ func parseConfig(raw []byte) (config, error) {
 		}
 	}
 	return next, nil
+}
+
+func setMatchDefault(target **bool, value bool) {
+	if *target == nil {
+		*target = new(bool)
+		**target = value
+	}
 }
 
 func cleanList(values []string) []string {

@@ -21,7 +21,7 @@ func TestInjectIdentitySystemShapes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			updated, outcome, errInject := injectIdentity([]byte(tt.body), true)
+			updated, outcome, errInject := injectIdentity([]byte(tt.body), "compatible")
 			if errInject != nil {
 				t.Fatalf("injectIdentity() error = %v", errInject)
 			}
@@ -46,44 +46,44 @@ func TestInjectIdentitySystemShapes(t *testing.T) {
 	}
 }
 
-func TestInjectIdentityOnlyTreatsFirstBlockAsIdempotent(t *testing.T) {
+func TestInjectIdentityTreatsAnyBlockAsIdempotent(t *testing.T) {
 	first := []byte(`{"system":[{"type":"text","text":"` + identityPrompt + `"},{"type":"text","text":"Keep this"}]}`)
-	updated, outcome, errInject := injectIdentity(first, false)
+	updated, outcome, errInject := injectIdentity(first, "prepend")
 	if errInject != nil || outcome != "already_present" || updated != nil {
 		t.Fatalf("first identity result = (%s, %q, %v), want nil/already_present/nil", updated, outcome, errInject)
 	}
 
 	later := []byte(`{"system":[{"type":"text","text":"Keep this"},{"type":"text","text":"` + identityPrompt + `"}]}`)
-	updated, outcome, errInject = injectIdentity(later, false)
-	if errInject != nil || outcome != "injected" {
-		t.Fatalf("later identity result = (%s, %q, %v), want injected", updated, outcome, errInject)
-	}
-	var body struct {
-		System []systemBlock `json:"system"`
-	}
-	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
-		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
-	}
-	if len(body.System) != 3 || body.System[0].Text != identityPrompt || body.System[2].Text != identityPrompt {
-		t.Fatalf("system = %#v, want identity prepended even when later block matches", body.System)
+	updated, outcome, errInject = injectIdentity(later, "prepend")
+	if errInject != nil || outcome != "already_present" || updated != nil {
+		t.Fatalf("later identity result = (%s, %q, %v), want nil/already_present/nil", updated, outcome, errInject)
 	}
 }
 
 func TestInjectIdentityCloakBillingHeader(t *testing.T) {
 	body := []byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.63"}]}`)
-	updated, outcome, errInject := injectIdentity(body, true)
+	updated, outcome, errInject := injectIdentity(body, "skip")
 	if errInject != nil || outcome != "cloak_skipped" || updated != nil {
 		t.Fatalf("skip result = (%s, %q, %v), want nil/cloak_skipped/nil", updated, outcome, errInject)
 	}
-	updated, outcome, errInject = injectIdentity(body, false)
+	updated, outcome, errInject = injectIdentity(body, "compatible")
 	if errInject != nil || outcome != "injected" || len(updated) == 0 {
-		t.Fatalf("non-skip result = (%s, %q, %v), want injected body", updated, outcome, errInject)
+		t.Fatalf("compatible result = (%s, %q, %v), want injected body", updated, outcome, errInject)
+	}
+	var decoded struct {
+		System []systemBlock `json:"system"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &decoded); errUnmarshal != nil {
+		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
+	}
+	if len(decoded.System) != 2 || decoded.System[0].Text != "x-anthropic-billing-header: cc_version=2.1.63" || decoded.System[1].Text != identityPrompt {
+		t.Fatalf("compatible system = %#v", decoded.System)
 	}
 }
 
 func TestInjectIdentityFailsOpenForInvalidBodies(t *testing.T) {
 	for _, body := range []string{`not-json`, `[]`, `{"system":{}}`} {
-		if updated, _, errInject := injectIdentity([]byte(body), true); errInject == nil || updated != nil {
+		if updated, _, errInject := injectIdentity([]byte(body), "compatible"); errInject == nil || updated != nil {
 			t.Fatalf("injectIdentity(%q) = (%s, %v), want nil error", body, updated, errInject)
 		}
 	}
@@ -122,5 +122,30 @@ rules:
 	matched = firstMatchingRule(cfg.Rules, req)
 	if matched == nil || matched.ID != "later" {
 		t.Fatalf("firstMatchingRule() after mismatch = %#v, want later", matched)
+	}
+}
+
+func TestRuleMatchingHonorsConditionToggles(t *testing.T) {
+	cfg, errParse := parseConfig([]byte(`
+rules:
+  - id: selected
+    enabled: true
+    match_providers: false
+    providers: [other]
+    match_auths: true
+    auth_indexes: [idx-1]
+    match_requested_models: false
+    requested_models: [other-model]
+`))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	req := upstreamRequest{Provider: "claude", RequestedModel: "claude-sonnet-4", Auth: upstreamAuth{Index: "idx-1"}}
+	if matched := firstMatchingRule(cfg.Rules, req); matched == nil || matched.ID != "selected" {
+		t.Fatalf("firstMatchingRule() = %#v, want selected", matched)
+	}
+	req.Auth.Index = "idx-2"
+	if matched := firstMatchingRule(cfg.Rules, req); matched != nil {
+		t.Fatalf("firstMatchingRule() = %#v, want nil", matched)
 	}
 }

@@ -25,11 +25,15 @@ plugins:
       enabled: true
       priority: 100
       active: false
-      skip_when_cloaked: true
+      cloak_handling: compatible
       log_matches: true
       rules:
         - id: sample
           enabled: false
+          match_providers: true
+          match_auths: false
+          match_requested_models: false
+          match_upstream_models: true
           providers: [claude]
           auth_ids: []
           auth_indexes: []
@@ -37,7 +41,7 @@ plugins:
           upstream_models: ["claude-*"]
 ```
 
-规则按配置顺序匹配，首条命中规则生效。空列表表示不限制该维度：
+规则按配置顺序匹配，首条命中规则生效。每个条件由对应的 `match_*` 开关独立控制：
 
 - `providers`：不区分大小写的精确匹配。
 - `auth_ids`、`auth_indexes`：区分大小写的精确匹配。
@@ -45,7 +49,11 @@ plugins:
 
 `active` 默认是 `false`，安装后不会立即修改请求。`enabled` 控制 CPA 是否加载插件，`active` 控制插件是否执行注入。
 
-CPA Cloak 会先插入 billing header 和完整 Claude Code system prompt。要保证身份文本严格位于 `system[0]`，匹配凭证的 Cloak 必须设为 `never`。默认 `skip_when_cloaked: true` 会在检测到 billing header 时跳过注入并记录日志。
+`cloak_handling` 支持三种策略：
+
+- `compatible`：默认。保留 Cloak billing header 在 `system[0]`，识别 Cloak 已注入的 Claude Code 身份并避免重复；若只有 billing header，则把身份插入其后。
+- `skip`：检测到 Cloak billing header 时跳过插件注入。
+- `prepend`：始终把身份放到 `system[0]`，可能破坏 Cloak 的 billing header 顺序。
 
 ## 构建
 
@@ -75,7 +83,7 @@ plugins/windows/amd64/claude-system-identity-injector.dll
 /v0/management/plugins/claude-system-identity-injector/settings
 ```
 
-页面需要 CPA 管理密钥。它可以读取非敏感凭证摘要、编辑规则、保存配置并触发热更新。
+页面需要 CPA 管理密钥。它可以读取非敏感凭证摘要及各 Auth 文件的已注册模型，直接选择提供商、Auth 文件和模型，保存配置并触发热更新。
 
 ## 日志与状态
 
@@ -98,10 +106,10 @@ GET /v0/management/plugins/claude-system-identity-injector/status
 ## 验证
 
 1. 在设置页连接管理 API，新增并启用一条只匹配测试凭证和模型的规则。
-2. 将对应 Claude 凭证的 Cloak 设为 `never`，再启用插件的 `active`。
+2. 保持默认 `cloak_handling: compatible`，再启用插件的 `active`。
 3. 通过 CPA 发出一条匹配请求，流式和非流式都支持。
 4. 检查 CPA 日志出现 `Claude identity system prompt injected`。
 5. 检查状态接口的 `matched` 和 `injected` 增加。
-6. 使用本地上游捕获或 CPA 请求日志确认最终 Anthropic JSON 的 `system[0].text` 精确等于目标文本。
+6. 未启用 Cloak 时确认身份位于 `system[0]`；启用 Cloak 时确认 billing header 位于 `system[0]` 且身份只出现一次。
 
 未命中规则、插件未激活、目标格式不是 Claude、请求体无效时，插件不会阻断上游请求。

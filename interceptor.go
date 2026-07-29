@@ -65,7 +65,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	}
 	counters.matched.Add(1)
 
-	updated, outcome, errInject := injectIdentity(req.Body, cfg.SkipWhenCloaked != nil && *cfg.SkipWhenCloaked)
+	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)
 	if errInject != nil {
 		counters.errors.Add(1)
 		fields := logFields(req, matchedRule.ID)
@@ -108,11 +108,14 @@ func matchesRule(rule rule, req upstreamRequest) bool {
 	if provider == "" {
 		provider = req.Auth.Provider
 	}
-	return matchesFold(rule.Providers, provider) &&
-		matchesExact(rule.AuthIDs, req.Auth.ID) &&
-		matchesExact(rule.AuthIndexes, req.Auth.Index) &&
-		matchesPatterns(rule.requestedPatterns, req.RequestedModel) &&
-		matchesPatterns(rule.upstreamPatterns, req.Model)
+	return (!matchEnabled(rule.MatchProviders) || (len(rule.Providers) > 0 && matchesFold(rule.Providers, provider))) &&
+		(!matchEnabled(rule.MatchAuths) || ((len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0) && matchesExact(rule.AuthIDs, req.Auth.ID) && matchesExact(rule.AuthIndexes, req.Auth.Index))) &&
+		(!matchEnabled(rule.MatchRequestedModels) || (len(rule.requestedPatterns) > 0 && matchesPatterns(rule.requestedPatterns, req.RequestedModel))) &&
+		(!matchEnabled(rule.MatchUpstreamModels) || (len(rule.upstreamPatterns) > 0 && matchesPatterns(rule.upstreamPatterns, req.Model)))
+}
+
+func matchEnabled(value *bool) bool {
+	return value != nil && *value
 }
 
 func matchesFold(values []string, actual string) bool {
@@ -151,7 +154,7 @@ func matchesPatterns(patterns []*regexp.Regexp, actual string) bool {
 	return false
 }
 
-func injectIdentity(raw []byte, skipWhenCloaked bool) ([]byte, string, error) {
+func injectIdentity(raw []byte, cloakHandling string) ([]byte, string, error) {
 	var body map[string]json.RawMessage
 	if errUnmarshal := json.Unmarshal(raw, &body); errUnmarshal != nil || body == nil {
 		return nil, "", &injectError{message: "body must be a JSON object"}
@@ -177,14 +180,23 @@ func injectIdentity(raw []byte, skipWhenCloaked bool) ([]byte, string, error) {
 	if errUnmarshal := json.Unmarshal(rawSystem, &blocks); errUnmarshal != nil {
 		return nil, "", &injectError{message: "system must be a string or array"}
 	}
+	for _, rawBlock := range blocks {
+		var block systemBlock
+		if json.Unmarshal(rawBlock, &block) == nil && block.Text == identityPrompt {
+			return nil, "already_present", nil
+		}
+	}
 	if len(blocks) > 0 {
 		var first systemBlock
-		if json.Unmarshal(blocks[0], &first) == nil {
-			if first.Text == identityPrompt {
-				return nil, "already_present", nil
-			}
-			if skipWhenCloaked && strings.HasPrefix(first.Text, "x-anthropic-billing-header:") {
+		if json.Unmarshal(blocks[0], &first) == nil && strings.HasPrefix(first.Text, "x-anthropic-billing-header:") {
+			switch cloakHandling {
+			case "skip":
 				return nil, "cloak_skipped", nil
+			case "compatible", "":
+				blocks = append(blocks[:1], append([]json.RawMessage{identityRaw}, blocks[1:]...)...)
+				replaced, _ := json.Marshal(blocks)
+				body["system"] = replaced
+				return marshalInjectedBody(body)
 			}
 		}
 	}
