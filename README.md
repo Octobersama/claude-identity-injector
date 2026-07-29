@@ -83,7 +83,7 @@ plugins/windows/amd64/claude-system-identity-injector.dll
 /v0/management/plugins/claude-system-identity-injector/settings
 ```
 
-页面需要 CPA 管理密钥。它可以读取非敏感凭证摘要及各 Auth 文件的已注册模型，直接选择提供商、Auth 文件和模型，保存配置并触发热更新。
+页面需要 CPA 管理密钥。它可以读取运行时已启用的 AI 提供商、非敏感 Auth 文件摘要及全局当前可用模型，直接选择提供商、Auth 文件和上游模型，保存配置并触发热更新。不同条件之间使用 AND，同一条件内的多选值使用 OR。
 
 ## 日志与状态
 

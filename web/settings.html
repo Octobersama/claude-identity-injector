@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Claude 身份注入</title>
+  <script>
+    try {
+      document.documentElement.dataset.theme = window.parent.document.documentElement.dataset.theme || '';
+    } catch (_) {
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark';
+    }
+  </script>
   <style>
     :root {
       color-scheme: light;
@@ -356,6 +363,17 @@
     .option-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .option-empty { padding: 10px; color: var(--text-tertiary); font-size: 12px; text-align: center; }
 
+    .logic-note {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-color);
+      background: color-mix(in srgb, var(--bg-secondary) 66%, transparent);
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .logic-note strong { color: var(--text-primary); }
+
     .empty { padding: 42px 20px; color: var(--text-secondary); text-align: center; }
     .empty strong { display: block; margin-bottom: 5px; color: var(--text-primary); }
 
@@ -456,6 +474,7 @@
         <button id="add" class="button" type="button">新增规则</button>
       </div>
       <div id="stats" class="stats"></div>
+      <div class="logic-note"><strong>匹配关系：</strong>启用的不同条件之间是“且（AND）”；同一条件中选择多个值是“或（OR）”。关闭的条件不参与匹配。</div>
       <div id="rules" class="rules-list"></div>
     </section>
   </main>
@@ -465,7 +484,7 @@
     const CONFIG_URL = `/v0/management/plugins/${PLUGIN}/config`;
     const AUTHS_URL = `/v0/management/plugins/${PLUGIN}/auths`;
     const STATUS_URL = `/v0/management/plugins/${PLUGIN}/status`;
-    const AUTH_MODELS_URL = '/v0/management/auth-files/models';
+    const CATALOG_URL = `/v0/management/plugins/${PLUGIN}/catalog`;
     const STAT_LABELS = {
       seen: '已处理', matched: '已匹配', injected: '已注入', already_present: '已存在', cloak_skipped: 'Cloak 跳过', errors: '错误'
     };
@@ -475,6 +494,7 @@
       config: null,
       rules: [],
       auths: [],
+      providers: [],
       models: []
     };
 
@@ -531,7 +551,6 @@
         enabled: true,
         match_providers: false,
         match_auths: false,
-        match_requested_models: false,
         match_upstream_models: false,
         providers: [],
         auth_ids: [],
@@ -563,8 +582,7 @@
     }
 
     function providerChoices() {
-      const providers = [...new Set(state.auths.map((auth) => auth.provider).filter(Boolean))].sort();
-      return providers.map((provider) => ({ value: provider, label: provider }));
+      return state.providers.map((provider) => ({ value: provider, label: provider }));
     }
 
     function authChoices() {
@@ -607,7 +625,6 @@
     function renderRule(rule, index) {
       const matchProviders = isMatchEnabled(rule, 'match_providers', [rule.providers]);
       const matchAuths = isMatchEnabled(rule, 'match_auths', [rule.auth_ids, rule.auth_indexes]);
-      const matchRequestedModels = isMatchEnabled(rule, 'match_requested_models', [rule.requested_models]);
       const matchUpstreamModels = isMatchEnabled(rule, 'match_upstream_models', [rule.upstream_models]);
       const row = document.createElement('article');
       row.className = 'rule';
@@ -636,15 +653,10 @@
               <div class="condition-controls">${renderChoiceList('auth_indexes', authChoices(), rule.auth_indexes)}</div>
               <span class="field-hint">可多选当前 CPA 已加载的认证文件</span>
             </div>
-            <div class="condition ${matchRequestedModels ? '' : 'disabled'}">
-              <div class="condition-header"><span class="condition-title">请求模型</span><label class="switch"><input class="condition-toggle" data-key="match_requested_models" type="checkbox" ${matchRequestedModels ? 'checked' : ''} aria-label="启用请求模型条件"><span class="switch-track"></span></label></div>
-              <div class="condition-controls">${renderChoiceList('requested_models', modelChoices(), rule.requested_models)}</div>
-              <span class="field-hint">客户端请求中使用的模型名称</span>
-            </div>
-            <div class="condition ${matchUpstreamModels ? '' : 'disabled'}">
+            <div class="condition wide ${matchUpstreamModels ? '' : 'disabled'}">
               <div class="condition-header"><span class="condition-title">上游模型</span><label class="switch"><input class="condition-toggle" data-key="match_upstream_models" type="checkbox" ${matchUpstreamModels ? 'checked' : ''} aria-label="启用上游模型条件"><span class="switch-track"></span></label></div>
               <div class="condition-controls">${renderChoiceList('upstream_models', modelChoices(), rule.upstream_models)}</div>
-              <span class="field-hint">完成映射后实际发送给提供商的模型</span>
+              <span class="field-hint">当前注册表中所有可用模型；匹配实际发送给上游提供商的模型名称</span>
             </div>
           </div>
         </div>`;
@@ -671,25 +683,6 @@
       element('stats').innerHTML = Object.entries(STAT_LABELS).map(([key, label]) => `<span class="stat">${label}<b>${data[key] ?? 0}</b></span>`).join('');
     }
 
-    async function loadModelCatalog() {
-      const requests = state.auths.map(async (auth) => {
-        const name = auth.name || auth.id || auth.auth_index;
-        if (!name) return [];
-        const response = await api(`${AUTH_MODELS_URL}?name=${encodeURIComponent(name)}`);
-        return Array.isArray(response.models) ? response.models : [];
-      });
-      const results = await Promise.allSettled(requests);
-      const modelsByID = new Map();
-      results.forEach((result) => {
-        if (result.status !== 'fulfilled') return;
-        result.value.forEach((model) => {
-          if (!model.id || modelsByID.has(model.id)) return;
-          modelsByID.set(model.id, { id: model.id, label: model.display_name ? `${model.display_name} · ${model.id}` : model.id });
-        });
-      });
-      state.models = [...modelsByID.values()].sort((left, right) => left.label.localeCompare(right.label));
-    }
-
     async function connect() {
       state.key = element('key').value.trim();
       if (!state.key) {
@@ -704,11 +697,12 @@
       element('connect').disabled = true;
 
       try {
-        const [config, auths, stats] = await Promise.all([api(CONFIG_URL), api(AUTHS_URL), api(STATUS_URL)]);
+        const [config, auths, stats, catalog] = await Promise.all([api(CONFIG_URL), api(AUTHS_URL), api(STATUS_URL), api(CATALOG_URL)]);
         state.config = config;
-        state.rules = Array.isArray(config.rules) ? structuredClone(config.rules) : [];
-        state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index) : [];
-        await loadModelCatalog();
+        state.rules = Array.isArray(config.rules) ? structuredClone(config.rules).map((rule) => ({ ...rule, match_requested_models: false, requested_models: [] })) : [];
+        state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && !auth.disabled && !auth.unavailable) : [];
+        state.providers = Array.isArray(catalog.providers) ? catalog.providers : [];
+        state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.display_name ? `${model.display_name} · ${model.id}` : model.id })).filter((model) => model.id) : [];
         element('active').checked = config.active === true;
         element('cloakHandling').value = config.cloak_handling || (config.skip_when_cloaked === false ? 'prepend' : 'compatible');
         element('logMatches').checked = config.log_matches !== false;
@@ -716,7 +710,7 @@
         renderRules();
         renderStats(stats);
         setConnection('已连接', 'connected');
-        setStatus(`已加载 ${state.auths.length} 个凭证、${state.models.length} 个模型和 ${state.rules.length} 条规则。`, 'success');
+        setStatus(`已加载 ${state.providers.length} 个 AI 提供商、${state.auths.length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
       } catch (error) {
         setConnection('连接失败', 'error');
         setStatus(error.message, 'error');
@@ -733,7 +727,6 @@
         if (ids.has(rule.id)) throw new Error(`规则 ID 重复: ${rule.id}`);
         if (rule.match_providers && !(rule.providers || []).length) throw new Error(`规则 ${rule.id} 已启用提供商条件，但尚未选择提供商`);
         if (rule.match_auths && !(rule.auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用 Auth 文件条件，但尚未选择文件`);
-        if (rule.match_requested_models && !(rule.requested_models || []).length) throw new Error(`规则 ${rule.id} 已启用请求模型条件，但尚未选择模型`);
         if (rule.match_upstream_models && !(rule.upstream_models || []).length) throw new Error(`规则 ${rule.id} 已启用上游模型条件，但尚未选择模型`);
         ids.add(rule.id);
       }
@@ -750,7 +743,7 @@
         cloak_handling: element('cloakHandling').value,
         skip_when_cloaked: element('cloakHandling').value === 'skip',
         log_matches: element('logMatches').checked,
-        rules: state.rules.map((rule) => ({ ...rule, auth_ids: [] }))
+        rules: state.rules.map((rule) => ({ ...rule, auth_ids: [], match_requested_models: false, requested_models: [] }))
       };
 
       element('save').disabled = true;

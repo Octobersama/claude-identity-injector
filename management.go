@@ -53,7 +53,22 @@ type authSummary struct {
 	Provider    string `json:"provider,omitempty"`
 	Label       string `json:"label,omitempty"`
 	Disabled    bool   `json:"disabled,omitempty"`
+	Unavailable bool   `json:"unavailable,omitempty"`
 	RuntimeOnly bool   `json:"runtime_only,omitempty"`
+}
+
+type providerListResponse struct {
+	Providers []string `json:"providers"`
+}
+
+type modelListResponse struct {
+	Models []modelSummary `json:"models"`
+}
+
+type modelSummary struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name,omitempty"`
+	OwnedBy     string `json:"owned_by,omitempty"`
 }
 
 func managementRegistration() managementRegistrationResponse {
@@ -61,6 +76,7 @@ func managementRegistration() managementRegistrationResponse {
 	return managementRegistrationResponse{
 		Routes: []managementRoute{
 			{Method: http.MethodGet, Path: base + "/auths", Description: "Non-sensitive runtime credential summaries."},
+			{Method: http.MethodGet, Path: base + "/catalog", Description: "Available AI providers and upstream models."},
 			{Method: http.MethodGet, Path: base + "/status", Description: "Plugin runtime counters and effective state."},
 		},
 		Resources: []resourceRoute{{
@@ -90,6 +106,24 @@ func handleManagement(raw []byte) ([]byte, error) {
 			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errUnmarshal.Error()}))
 		}
 		return okEnvelope(managementJSONResponse(http.StatusOK, auths))
+	case strings.HasSuffix(path, "/catalog"):
+		providersRaw, errProviders := callHost("host.provider.list", map[string]any{"host_callback_id": req.HostCallbackID})
+		if errProviders != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errProviders.Error()}))
+		}
+		modelsRaw, errModels := callHost("host.model.list", map[string]any{"host_callback_id": req.HostCallbackID})
+		if errModels != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errModels.Error()}))
+		}
+		var providers providerListResponse
+		var models modelListResponse
+		if errUnmarshal := json.Unmarshal(providersRaw, &providers); errUnmarshal != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errUnmarshal.Error()}))
+		}
+		if errUnmarshal := json.Unmarshal(modelsRaw, &models); errUnmarshal != nil {
+			return okEnvelope(managementJSONResponse(http.StatusBadGateway, map[string]any{"error": errUnmarshal.Error()}))
+		}
+		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{"providers": providers.Providers, "models": models.Models}))
 	case strings.HasSuffix(path, "/status"):
 		cfg := currentConfig()
 		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{
