@@ -34,10 +34,11 @@ type upstreamAuth struct {
 }
 
 type upstreamResponse struct {
-	Body              []byte      `json:"Body,omitempty"`
-	Headers           http.Header `json:"Headers,omitempty"`
-	ClearHeaders      []string    `json:"ClearHeaders,omitempty"`
-	BypassClaudeCloak bool        `json:"BypassClaudeCloak,omitempty"`
+	Body                     []byte      `json:"Body,omitempty"`
+	Headers                  http.Header `json:"Headers,omitempty"`
+	ClearHeaders             []string    `json:"ClearHeaders,omitempty"`
+	BypassClaudeCloak        bool        `json:"BypassClaudeCloak,omitempty"`
+	ForceBearerAuthorization bool        `json:"ForceBearerAuthorization,omitempty"`
 }
 
 type systemBlock struct {
@@ -88,7 +89,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields := logFields(req, matchedRule.ID)
 		fields["outcome"] = "strict_profile"
 		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
-		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders})
+		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true})
 	}
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)

@@ -71,11 +71,13 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 		return nil, nil, nil, errMarshal
 	}
 	headers := http.Header{
-		"Accept":         []string{strictAccept(req.Stream)},
-		"Anthropic-Beta": []string{strictBetas},
+		"Accept":          []string{"application/json"},
+		"Accept-Encoding": []string{"gzip, deflate, br, zstd"},
+		"Anthropic-Beta":  []string{strictBetas},
 		"Anthropic-Dangerous-Direct-Browser-Access": []string{"true"},
 		"Anthropic-Version":                         []string{"2023-06-01"},
 		"Connection":                                []string{"keep-alive"},
+		"Content-Type":                              []string{"application/json"},
 		"User-Agent":                                []string{fmt.Sprintf("claude-cli/%s (external, cli)", strictClaudeVersion)},
 		"X-App":                                     []string{"cli"},
 		"X-Claude-Code-Session-Id":                  []string{sessionID},
@@ -88,19 +90,7 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 		"X-Stainless-Runtime-Version":               []string{strictRuntime},
 		"X-Stainless-Timeout":                       []string{"600"},
 	}
-	if req.Stream {
-		headers.Set("Accept-Encoding", "identity")
-	} else {
-		headers.Set("Accept-Encoding", "gzip, deflate, br, zstd")
-	}
 	return updated, headers, []string{"x-client-request-id"}, nil
-}
-
-func strictAccept(stream bool) string {
-	if stream {
-		return "text/event-stream"
-	}
-	return "application/json"
 }
 
 func strictSessionID(req upstreamRequest) string {

@@ -82,8 +82,17 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 	if got := headers.Get("X-Stainless-Package-Version"); got != "0.94.0" {
 		t.Fatalf("X-Stainless-Package-Version = %q", got)
 	}
-	if got := headers.Get("Accept-Encoding"); got != "identity" {
+	if got := headers.Get("Anthropic-Beta"); got != strictBetas {
+		t.Fatalf("Anthropic-Beta = %q, want captured sample", got)
+	}
+	if got := headers.Get("Accept"); got != "application/json" {
+		t.Fatalf("Accept = %q", got)
+	}
+	if got := headers.Get("Accept-Encoding"); got != "gzip, deflate, br, zstd" {
 		t.Fatalf("Accept-Encoding = %q", got)
+	}
+	if got := headers.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q", got)
 	}
 	if len(clearHeaders) != 1 || clearHeaders[0] != "x-client-request-id" {
 		t.Fatalf("clearHeaders = %#v", clearHeaders)
