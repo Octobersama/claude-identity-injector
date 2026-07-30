@@ -75,7 +75,7 @@
       min-height: 100vh;
       flex-direction: column;
       gap: 20px;
-      padding: clamp(20px, 3vw, 36px);
+      padding: 70px clamp(20px, 3vw, 48px) 40px;
     }
 
     .page-header {
@@ -378,7 +378,7 @@
     .empty strong { display: block; margin-bottom: 5px; color: var(--text-primary); }
 
     @media (max-width: 760px) {
-      .page { gap: 14px; padding: 16px; }
+      .page { gap: 14px; padding: 74px 16px 24px; }
       .page-header { flex-direction: column; gap: 12px; }
       h1 { font-size: 24px; }
       .toolbar { grid-template-columns: 1fr auto; align-items: end; }
@@ -392,7 +392,7 @@
     }
 
     @media (max-width: 460px) {
-      .page { padding: 12px; }
+      .page { padding: 74px 12px 20px; }
       .toolbar { grid-template-columns: 1fr; }
       .toolbar .field, .toolbar .button { grid-column: 1; width: 100%; }
       .setting-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
@@ -411,7 +411,7 @@
     <header class="page-header">
       <div class="title-group">
         <h1>Claude 身份注入</h1>
-        <p class="description">按提供商、认证凭证和模型匹配请求，在 system 首位注入 Claude Code 身份提示词。</p>
+        <p class="description">按已配置密钥、Auth 文件和上游模型匹配请求，在 system 首位注入 Claude Code 身份提示词。</p>
       </div>
       <div id="connectionState" class="connection-state">
         <span class="state-dot"></span>
@@ -494,7 +494,6 @@
       config: null,
       rules: [],
       auths: [],
-      providers: [],
       models: []
     };
 
@@ -553,6 +552,7 @@
         match_auths: false,
         match_upstream_models: false,
         providers: [],
+        provider_auth_indexes: [],
         auth_ids: [],
         auth_indexes: [],
         requested_models: [],
@@ -581,12 +581,18 @@
         </label>`).join('')}</div>`;
     }
 
-    function providerChoices() {
-      return state.providers.map((provider) => ({ value: provider, label: provider }));
+    function providerKeyChoices() {
+      return state.auths
+        .filter((auth) => auth.runtime_only)
+        .map((auth) => ({
+          value: auth.auth_index || '',
+          label: `${auth.label || auth.name || auth.id || auth.auth_index} · ${auth.provider || 'unknown'}`
+        }))
+        .filter((entry) => entry.value);
     }
 
     function authChoices() {
-      return state.auths.map((auth) => ({ value: auth.auth_index || '', label: authLabel(auth) })).filter((auth) => auth.value);
+      return state.auths.filter((auth) => !auth.runtime_only).map((auth) => ({ value: auth.auth_index || '', label: authLabel(auth) })).filter((auth) => auth.value);
     }
 
     function modelChoices() {
@@ -623,7 +629,7 @@
     }
 
     function renderRule(rule, index) {
-      const matchProviders = isMatchEnabled(rule, 'match_providers', [rule.providers]);
+      const matchProviders = isMatchEnabled(rule, 'match_providers', [rule.provider_auth_indexes, rule.providers]);
       const matchAuths = isMatchEnabled(rule, 'match_auths', [rule.auth_ids, rule.auth_indexes]);
       const matchUpstreamModels = isMatchEnabled(rule, 'match_upstream_models', [rule.upstream_models]);
       const row = document.createElement('article');
@@ -644,9 +650,9 @@
           </div>
           <div class="rule-grid">
             <div class="condition ${matchProviders ? '' : 'disabled'}">
-              <div class="condition-header"><span class="condition-title">提供商</span><label class="switch"><input class="condition-toggle" data-key="match_providers" type="checkbox" ${matchProviders ? 'checked' : ''} aria-label="启用提供商条件"><span class="switch-track"></span></label></div>
-              <div class="condition-controls">${renderChoiceList('providers', providerChoices(), rule.providers)}</div>
-              <span class="field-hint">从当前已加载 Auth 的提供商中选择</span>
+              <div class="condition-header"><span class="condition-title">已配置密钥</span><label class="switch"><input class="condition-toggle" data-key="match_providers" type="checkbox" ${matchProviders ? 'checked' : ''} aria-label="启用已配置密钥条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls">${renderChoiceList('provider_auth_indexes', providerKeyChoices(), rule.provider_auth_indexes)}</div>
+              <span class="field-hint">来自“AI 提供商”配置且当前已启用的具体密钥条目</span>
             </div>
             <div class="condition ${matchAuths ? '' : 'disabled'}">
               <div class="condition-header"><span class="condition-title">Auth 文件</span><label class="switch"><input class="condition-toggle" data-key="match_auths" type="checkbox" ${matchAuths ? 'checked' : ''} aria-label="启用 Auth 文件条件"><span class="switch-track"></span></label></div>
@@ -701,7 +707,6 @@
         state.config = config;
         state.rules = Array.isArray(config.rules) ? structuredClone(config.rules).map((rule) => ({ ...rule, match_requested_models: false, requested_models: [] })) : [];
         state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && !auth.disabled && !auth.unavailable) : [];
-        state.providers = Array.isArray(catalog.providers) ? catalog.providers : [];
         state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.display_name ? `${model.display_name} · ${model.id}` : model.id })).filter((model) => model.id) : [];
         element('active').checked = config.active === true;
         element('cloakHandling').value = config.cloak_handling || (config.skip_when_cloaked === false ? 'prepend' : 'compatible');
@@ -710,7 +715,7 @@
         renderRules();
         renderStats(stats);
         setConnection('已连接', 'connected');
-        setStatus(`已加载 ${state.providers.length} 个 AI 提供商、${state.auths.length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
+        setStatus(`已加载 ${providerKeyChoices().length} 个已配置密钥、${state.auths.filter((auth) => !auth.runtime_only).length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
       } catch (error) {
         setConnection('连接失败', 'error');
         setStatus(error.message, 'error');
@@ -725,7 +730,7 @@
       for (const rule of state.rules) {
         if (!rule.id) throw new Error('规则 ID 不能为空');
         if (ids.has(rule.id)) throw new Error(`规则 ID 重复: ${rule.id}`);
-        if (rule.match_providers && !(rule.providers || []).length) throw new Error(`规则 ${rule.id} 已启用提供商条件，但尚未选择提供商`);
+        if (rule.match_providers && !(rule.provider_auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用已配置密钥条件，但尚未选择条目`);
         if (rule.match_auths && !(rule.auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用 Auth 文件条件，但尚未选择文件`);
         if (rule.match_upstream_models && !(rule.upstream_models || []).length) throw new Error(`规则 ${rule.id} 已启用上游模型条件，但尚未选择模型`);
         ids.add(rule.id);
@@ -743,7 +748,7 @@
         cloak_handling: element('cloakHandling').value,
         skip_when_cloaked: element('cloakHandling').value === 'skip',
         log_matches: element('logMatches').checked,
-        rules: state.rules.map((rule) => ({ ...rule, auth_ids: [], match_requested_models: false, requested_models: [] }))
+        rules: state.rules.map((rule) => ({ ...rule, providers: [], auth_ids: [], match_requested_models: false, requested_models: [] }))
       };
 
       element('save').disabled = true;

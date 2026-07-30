@@ -108,7 +108,11 @@ func matchesRule(rule rule, req upstreamRequest) bool {
 	if provider == "" {
 		provider = req.Auth.Provider
 	}
-	return (!matchEnabled(rule.MatchProviders) || (len(rule.Providers) > 0 && matchesFold(rule.Providers, provider))) &&
+	providerMatches := len(rule.ProviderAuthIndexes) > 0 && matchesExact(rule.ProviderAuthIndexes, req.Auth.Index)
+	if len(rule.ProviderAuthIndexes) == 0 {
+		providerMatches = len(rule.Providers) > 0 && matchesFold(rule.Providers, provider)
+	}
+	return (!matchEnabled(rule.MatchProviders) || providerMatches) &&
 		(!matchEnabled(rule.MatchAuths) || ((len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0) && matchesExact(rule.AuthIDs, req.Auth.ID) && matchesExact(rule.AuthIndexes, req.Auth.Index))) &&
 		(!matchEnabled(rule.MatchRequestedModels) || (len(rule.requestedPatterns) > 0 && matchesPatterns(rule.requestedPatterns, req.RequestedModel))) &&
 		(!matchEnabled(rule.MatchUpstreamModels) || (len(rule.upstreamPatterns) > 0 && matchesPatterns(rule.upstreamPatterns, req.Model)))

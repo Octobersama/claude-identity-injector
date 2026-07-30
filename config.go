@@ -28,6 +28,7 @@ type rule struct {
 	MatchRequestedModels *bool    `yaml:"match_requested_models" json:"match_requested_models"`
 	MatchUpstreamModels  *bool    `yaml:"match_upstream_models" json:"match_upstream_models"`
 	Providers            []string `yaml:"providers" json:"providers"`
+	ProviderAuthIndexes  []string `yaml:"provider_auth_indexes" json:"provider_auth_indexes"`
 	AuthIDs              []string `yaml:"auth_ids" json:"auth_ids"`
 	AuthIndexes          []string `yaml:"auth_indexes" json:"auth_indexes"`
 	RequestedModels      []string `yaml:"requested_models" json:"requested_models"`
@@ -163,11 +164,12 @@ func parseConfig(raw []byte) (config, error) {
 		}
 		seen[rule.ID] = struct{}{}
 		rule.Providers = cleanList(rule.Providers)
+		rule.ProviderAuthIndexes = cleanList(rule.ProviderAuthIndexes)
 		rule.AuthIDs = cleanList(rule.AuthIDs)
 		rule.AuthIndexes = cleanList(rule.AuthIndexes)
 		rule.RequestedModels = cleanList(rule.RequestedModels)
 		rule.UpstreamModels = cleanList(rule.UpstreamModels)
-		setMatchDefault(&rule.MatchProviders, len(rule.Providers) > 0)
+		setMatchDefault(&rule.MatchProviders, len(rule.ProviderAuthIndexes) > 0 || len(rule.Providers) > 0)
 		setMatchDefault(&rule.MatchAuths, len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0)
 		setMatchDefault(&rule.MatchRequestedModels, len(rule.RequestedModels) > 0)
 		setMatchDefault(&rule.MatchUpstreamModels, len(rule.UpstreamModels) > 0)

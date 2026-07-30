@@ -149,3 +149,24 @@ rules:
 		t.Fatalf("firstMatchingRule() = %#v, want nil", matched)
 	}
 }
+
+func TestRuleMatchingConfiguredProviderKeyByAuthIndex(t *testing.T) {
+	cfg, errParse := parseConfig([]byte(`
+rules:
+  - id: key-entry
+    enabled: true
+    match_providers: true
+    provider_auth_indexes: [configured-key-1]
+`))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	req := upstreamRequest{Provider: "claude", Auth: upstreamAuth{Index: "configured-key-1"}}
+	if matched := firstMatchingRule(cfg.Rules, req); matched == nil || matched.ID != "key-entry" {
+		t.Fatalf("firstMatchingRule() = %#v, want key-entry", matched)
+	}
+	req.Auth.Index = "configured-key-2"
+	if matched := firstMatchingRule(cfg.Rules, req); matched != nil {
+		t.Fatalf("firstMatchingRule() = %#v, want nil", matched)
+	}
+}
