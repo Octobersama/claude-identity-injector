@@ -73,7 +73,7 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 	headers := http.Header{
 		"Accept":          []string{"application/json"},
 		"Accept-Encoding": []string{"gzip, deflate, br, zstd"},
-		"Anthropic-Beta":  []string{strictBetas},
+		"anthropic-beta":  []string{strictBetas},
 		"Anthropic-Dangerous-Direct-Browser-Access": []string{"true"},
 		"Anthropic-Version":                         []string{"2023-06-01"},
 		"Connection":                                []string{"keep-alive"},

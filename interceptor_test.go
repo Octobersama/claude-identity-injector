@@ -82,7 +82,7 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 	if got := headers.Get("X-Stainless-Package-Version"); got != "0.94.0" {
 		t.Fatalf("X-Stainless-Package-Version = %q", got)
 	}
-	if got := headers.Get("Anthropic-Beta"); got != strictBetas {
+	if got := headers["anthropic-beta"][0]; got != strictBetas {
 		t.Fatalf("Anthropic-Beta = %q, want captured sample", got)
 	}
 	if got := headers.Get("Accept"); got != "application/json" {
