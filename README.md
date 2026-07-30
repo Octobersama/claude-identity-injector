@@ -101,7 +101,7 @@ plugins/windows/amd64/claude-system-identity-injector.dll
 GET /v0/management/plugins/claude-system-identity-injector/status
 ```
 
-返回 `seen`、`matched`、`injected`、`already_present`、`cloak_skipped` 和 `errors`。
+返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`effective`、`cloak_skipped` 和 `errors`。其中 `effective = injected + already_present`，表示最终具备身份提示词的命中请求。
 
 ## 验证
 

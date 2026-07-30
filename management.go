@@ -127,14 +127,24 @@ func handleManagement(raw []byte) ([]byte, error) {
 		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{"providers": providers.Providers, "models": models.Models}))
 	case strings.HasSuffix(path, "/status"):
 		cfg := currentConfig()
+		seen := counters.seen.Load()
+		matched := counters.matched.Load()
+		injected := counters.injected.Load()
+		alreadyPresent := counters.already.Load()
+		unmatched := uint64(0)
+		if seen > matched {
+			unmatched = seen - matched
+		}
 		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{
 			"active":          cfg.Active,
 			"rules":           len(cfg.Rules),
 			"identity":        identityPrompt,
-			"seen":            counters.seen.Load(),
-			"matched":         counters.matched.Load(),
-			"injected":        counters.injected.Load(),
-			"already_present": counters.already.Load(),
+			"seen":            seen,
+			"matched":         matched,
+			"unmatched":       unmatched,
+			"injected":        injected,
+			"already_present": alreadyPresent,
+			"effective":       injected + alreadyPresent,
 			"cloak_skipped":   counters.cloakSkipped.Load(),
 			"errors":          counters.errors.Load(),
 		}))

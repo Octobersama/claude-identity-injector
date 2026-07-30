@@ -297,8 +297,10 @@
     .warning strong { color: var(--text-primary); }
 
     .stats { display: flex; flex-wrap: wrap; gap: 7px; padding: 12px 16px; border-bottom: 1px solid var(--border-color); }
-    .stat { min-height: 28px; border-radius: 6px; padding: 4px 8px; font-size: 11px; }
+    .stat { min-height: 30px; border-radius: 6px; padding: 5px 9px; font-size: 11px; }
     .stat b { color: var(--text-primary); font-size: 12px; }
+    .stat.effective { border-color: color-mix(in srgb, var(--success-color) 45%, var(--border-color)); color: var(--success-color); }
+    .stat.effective b { color: var(--success-color); }
 
     .rules-list { display: flex; flex-direction: column; }
 
@@ -485,9 +487,16 @@
     const AUTHS_URL = `/v0/management/plugins/${PLUGIN}/auths`;
     const STATUS_URL = `/v0/management/plugins/${PLUGIN}/status`;
     const CATALOG_URL = `/v0/management/plugins/${PLUGIN}/catalog`;
-    const STAT_LABELS = {
-      seen: '已处理', matched: '已匹配', injected: '已注入', already_present: '已存在', cloak_skipped: 'Cloak 跳过', errors: '错误'
-    };
+    const STAT_ITEMS = [
+      { key: 'seen', label: '已检查', title: '所有进入插件规则检查的 Claude 上游请求。' },
+      { key: 'matched', label: '命中规则', title: '满足至少一条启用规则的请求。' },
+      { key: 'unmatched', label: '未匹配', title: '已检查但未满足任何启用规则的请求。' },
+      { key: 'injected', label: '新增注入', title: '原请求没有身份提示词，由插件实际修改并插入。' },
+      { key: 'already_present', label: '原本已存在', title: '请求到达插件时已有完全相同的身份提示词，因此未重复插入。' },
+      { key: 'effective', label: '有效覆盖', title: '新增注入与原本已存在之和，表示最终具备身份提示词的命中请求。', className: 'effective' },
+      { key: 'cloak_skipped', label: 'Cloak 跳过', title: '配置要求在 CPA Cloak 生效时跳过的请求。' },
+      { key: 'errors', label: '处理错误', title: '规则命中后解析或修改请求体失败的次数。' }
+    ];
 
     const state = {
       key: sessionStorage.getItem(`${PLUGIN}:key`) || '',
@@ -686,7 +695,11 @@
     }
 
     function renderStats(data = {}) {
-      element('stats').innerHTML = Object.entries(STAT_LABELS).map(([key, label]) => `<span class="stat">${label}<b>${data[key] ?? 0}</b></span>`).join('');
+      element('stats').innerHTML = STAT_ITEMS.map((item) => `
+        <span class="stat ${item.className || ''}" title="${escapeHTML(item.title)}">
+          ${escapeHTML(item.label)}<b>${data[item.key] ?? 0}</b>
+        </span>
+      `).join('');
     }
 
     async function connect() {
