@@ -109,3 +109,8 @@ func strictUserID(req upstreamRequest, sessionID string) string {
 	})
 	return string(value)
 }
+
+func strictBetasSHA256() string {
+	sum := sha256.Sum256([]byte(strictBetas))
+	return hex.EncodeToString(sum[:])
+}

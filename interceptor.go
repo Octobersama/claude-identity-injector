@@ -70,7 +70,14 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	counters.seen.Add(1)
 	matchedRule := firstMatchingRule(cfg.Rules, req)
 	if req.Phase == "pre_cloak" {
-		return okEnvelope(upstreamResponse{BypassClaudeCloak: matchedRule != nil && matchedRule.StrictMode})
+		bypass := matchedRule != nil && matchedRule.StrictMode
+		if bypass {
+			fields := logFields(req, matchedRule.ID)
+			fields["phase"] = req.Phase
+			fields["bypass_claude_cloak"] = true
+			logHost(req.HostCallbackID, "info", "Claude strict profile requested Cloak bypass", fields)
+		}
+		return okEnvelope(upstreamResponse{BypassClaudeCloak: bypass})
 	}
 	if matchedRule == nil {
 		logHost(req.HostCallbackID, "debug", "Claude identity injection rule did not match", logFields(req, ""))
@@ -90,6 +97,15 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		counters.strict.Add(1)
 		fields := logFields(req, matchedRule.ID)
 		fields["outcome"] = "strict_profile"
+		fields["phase"] = req.Phase
+		fields["replace_headers"] = true
+		fields["force_bearer_authorization"] = true
+		fields["skip_upstream_body_transforms"] = true
+		fields["anthropic_beta"] = strictBetas
+		fields["anthropic_beta_bytes"] = len(strictBetas)
+		fields["anthropic_beta_sha256"] = strictBetasSHA256()
+		fields["has_context_1m"] = strings.Contains(strictBetas, "context-1m-2025-08-07")
+		fields["body_bytes"] = len(updated)
 		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
 		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true, ReplaceHeaders: true, SkipUpstreamBodyTransforms: true})
 	}
