@@ -47,15 +47,17 @@ type authListResponse struct {
 }
 
 type authSummary struct {
-	ID          string `json:"id,omitempty"`
-	AuthIndex   string `json:"auth_index,omitempty"`
-	Name        string `json:"name"`
-	Provider    string `json:"provider,omitempty"`
-	Label       string `json:"label,omitempty"`
-	Disabled    bool   `json:"disabled,omitempty"`
-	Unavailable bool   `json:"unavailable,omitempty"`
-	RuntimeOnly bool   `json:"runtime_only,omitempty"`
-	Source      string `json:"source,omitempty"`
+	ID          string   `json:"id,omitempty"`
+	AuthIndex   string   `json:"auth_index,omitempty"`
+	Name        string   `json:"name"`
+	Provider    string   `json:"provider,omitempty"`
+	Models      []string `json:"models,omitempty"`
+	Label       string   `json:"label,omitempty"`
+	Status      string   `json:"status,omitempty"`
+	Disabled    bool     `json:"disabled,omitempty"`
+	Unavailable bool     `json:"unavailable,omitempty"`
+	RuntimeOnly bool     `json:"runtime_only,omitempty"`
+	Source      string   `json:"source,omitempty"`
 }
 
 type providerListResponse struct {

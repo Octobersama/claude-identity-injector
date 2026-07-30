@@ -592,7 +592,7 @@
 
     function providerKeyChoices() {
       return state.auths
-        .filter((auth) => auth.source === 'config')
+        .filter((auth) => auth.source === 'config' && Array.isArray(auth.models) && auth.models.length > 0)
         .map((auth) => ({
           value: auth.auth_index || '',
           label: `${auth.label || auth.name || auth.id || auth.auth_index} · ${auth.provider || 'unknown'}`
@@ -719,7 +719,7 @@
         const [config, auths, stats, catalog] = await Promise.all([api(CONFIG_URL), api(AUTHS_URL), api(STATUS_URL), api(CATALOG_URL)]);
         state.config = config;
         state.rules = Array.isArray(config.rules) ? structuredClone(config.rules).map((rule) => ({ ...rule, match_requested_models: false, requested_models: [] })) : [];
-        state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && !auth.disabled && !auth.unavailable) : [];
+        state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && auth.status !== 'disabled' && !auth.disabled && !auth.unavailable) : [];
         state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.id })).filter((model) => model.id) : [];
         element('active').checked = config.active === true;
         element('cloakHandling').value = config.cloak_handling || (config.skip_when_cloaked === false ? 'prepend' : 'compatible');
