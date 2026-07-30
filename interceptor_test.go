@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -46,7 +47,92 @@ func TestInjectIdentitySystemShapes(t *testing.T) {
 	}
 }
 
-func TestInjectIdentityTreatsAnyBlockAsIdempotent(t *testing.T) {
+func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
+	req := upstreamRequest{
+		RequestID: "request-1",
+		Stream:    true,
+		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
+		Body:      []byte(`{"model":"claude-opus-5","messages":[],"tools":[]}`),
+	}
+	updated, headers, clearHeaders, errStrict := applyStrictClaudeCodeProfile(req)
+	if errStrict != nil {
+		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
+	}
+	var body struct {
+		System   []strictTextBlock `json:"system"`
+		Metadata struct {
+			UserID string `json:"user_id"`
+		} `json:"metadata"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
+	}
+	if len(body.System) != 3 || !strings.HasPrefix(body.System[0].Text, "x-anthropic-billing-header: cc_version=2.1.220.685") {
+		t.Fatalf("system = %#v", body.System)
+	}
+	if body.System[1].Text != identityPrompt || body.System[1].CacheControl == nil || body.System[1].CacheControl.Type != "ephemeral" {
+		t.Fatalf("identity block = %#v", body.System[1])
+	}
+	if !strings.Contains(body.Metadata.UserID, `"device_id"`) || !strings.Contains(body.Metadata.UserID, `"session_id"`) {
+		t.Fatalf("metadata.user_id = %q", body.Metadata.UserID)
+	}
+	if got := headers.Get("User-Agent"); got != "claude-cli/2.1.220 (external, cli)" {
+		t.Fatalf("User-Agent = %q", got)
+	}
+	if got := headers.Get("X-Stainless-Package-Version"); got != "0.94.0" {
+		t.Fatalf("X-Stainless-Package-Version = %q", got)
+	}
+	if got := headers.Get("Accept-Encoding"); got != "identity" {
+		t.Fatalf("Accept-Encoding = %q", got)
+	}
+	if len(clearHeaders) != 1 || clearHeaders[0] != "x-client-request-id" {
+		t.Fatalf("clearHeaders = %#v", clearHeaders)
+	}
+}
+
+func TestStrictRuleRequestsCloakBypassOnlyInPrePhase(t *testing.T) {
+	cfg, errParse := parseConfig([]byte(`
+active: true
+rules:
+  - id: strict
+    enabled: true
+    strict_mode: true
+    match_auths: true
+    auth_indexes: [idx-1]
+`))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	configState.Lock()
+	previous := configState.value
+	configState.value = cfg
+	configState.Unlock()
+	t.Cleanup(func() {
+		configState.Lock()
+		configState.value = previous
+		configState.Unlock()
+	})
+	raw, _ := json.Marshal(upstreamRequest{Phase: "pre_cloak", ToFormat: "claude", Auth: upstreamAuth{Index: "idx-1"}, Body: []byte(`{"messages":[]}`)})
+	envelopeRaw, errHandle := handleUpstreamIntercept(raw)
+	if errHandle != nil {
+		t.Fatalf("handleUpstreamIntercept() error = %v", errHandle)
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if errUnmarshal := json.Unmarshal(envelopeRaw, &envelope); errUnmarshal != nil {
+		t.Fatalf("Unmarshal envelope: %v", errUnmarshal)
+	}
+	var response upstreamResponse
+	if errUnmarshal := json.Unmarshal(envelope.Result, &response); errUnmarshal != nil {
+		t.Fatalf("Unmarshal response: %v", errUnmarshal)
+	}
+	if !response.BypassClaudeCloak || len(response.Body) != 0 {
+		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestInjectIdentityOnlyTreatsFirstBlockAsIdempotentWithoutCloak(t *testing.T) {
 	first := []byte(`{"system":[{"type":"text","text":"` + identityPrompt + `"},{"type":"text","text":"Keep this"}]}`)
 	updated, outcome, errInject := injectIdentity(first, "prepend")
 	if errInject != nil || outcome != "already_present" || updated != nil {
@@ -55,8 +141,8 @@ func TestInjectIdentityTreatsAnyBlockAsIdempotent(t *testing.T) {
 
 	later := []byte(`{"system":[{"type":"text","text":"Keep this"},{"type":"text","text":"` + identityPrompt + `"}]}`)
 	updated, outcome, errInject = injectIdentity(later, "prepend")
-	if errInject != nil || outcome != "already_present" || updated != nil {
-		t.Fatalf("later identity result = (%s, %q, %v), want nil/already_present/nil", updated, outcome, errInject)
+	if errInject != nil || outcome != "injected" || len(updated) == 0 {
+		t.Fatalf("later identity result = (%s, %q, %v), want injected body", updated, outcome, errInject)
 	}
 }
 

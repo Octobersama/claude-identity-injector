@@ -147,6 +147,7 @@ func handleManagement(raw []byte) ([]byte, error) {
 			"unmatched":       unmatched,
 			"injected":        injected,
 			"already_present": alreadyPresent,
+			"strict_takeover": counters.strict.Load(),
 			"effective":       injected + alreadyPresent,
 			"cloak_skipped":   counters.cloakSkipped.Load(),
 			"errors":          counters.errors.Load(),

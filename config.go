@@ -23,6 +23,7 @@ type config struct {
 type rule struct {
 	ID                   string   `yaml:"id" json:"id"`
 	Enabled              bool     `yaml:"enabled" json:"enabled"`
+	StrictMode           bool     `yaml:"strict_mode" json:"strict_mode"`
 	MatchProviders       *bool    `yaml:"match_providers" json:"match_providers"`
 	MatchAuths           *bool    `yaml:"match_auths" json:"match_auths"`
 	MatchRequestedModels *bool    `yaml:"match_requested_models" json:"match_requested_models"`
@@ -116,7 +117,7 @@ func pluginRegistration() registration {
 			Name:             "Claude System Identity Injector",
 			Version:          pluginVersion,
 			Author:           "Octobersama",
-			GitHubRepository: "https://github.com/Octobersama/claude-system-identity-injector",
+			GitHubRepository: "https://github.com/Octobersama/claude-identity-injector",
 		},
 		Capabilities: registrationCapabilities{
 			UpstreamRequestInterceptor: true,

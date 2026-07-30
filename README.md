@@ -6,6 +6,8 @@ CLIProxyAPI 插件。对匹配的 Anthropic Messages 上游请求，在最终请
 You are Claude Code, Anthropic's official CLI for Claude.
 ```
 
+规则可单独启用严格模式。严格模式在 CPA Cloak 前声明接管，并在最终上游阶段重建 Claude Code 风格的 system 三段结构、metadata、beta 列表和 Stainless/Claude Code 请求头。API Key/Authorization 认证头仍由 CPA 生成，插件不会读取、保存或记录密钥。
+
 行为与 cc-switch 的 Codex -> Anthropic 且启用 `impersonate_claude_code` 链路一致：只有首个 system 文本块已经精确等于上述文本时才跳过。如果相同文本位于后续块，仍会在首位再注入一份。
 
 ## 前置条件
@@ -30,6 +32,7 @@ plugins:
       rules:
         - id: sample
           enabled: false
+          strict_mode: false
           match_providers: true
           match_auths: false
           match_requested_models: false
@@ -48,6 +51,8 @@ plugins:
 - `requested_models`、`upstream_models`：支持 `*` 和 `?` glob。
 
 `active` 默认是 `false`，安装后不会立即修改请求。`enabled` 控制 CPA 是否加载插件，`active` 控制插件是否执行注入。
+
+`strict_mode` 是规则级开关。命中严格规则时，插件跳过 CPA 内置 Claude Cloak，避免 Cloak 的 system 搬移、伪造 metadata 或敏感词混淆先行产生不可逆改动；未启用严格模式的规则继续使用下面的 `cloak_handling` 兼容策略。
 
 `cloak_handling` 支持三种策略：
 

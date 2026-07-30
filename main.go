@@ -65,7 +65,7 @@ const (
 	abiVersion    = 1
 	schemaVersion = 3
 	pluginID      = "claude-system-identity-injector"
-	pluginVersion = "0.3.2"
+	pluginVersion = "0.4.0"
 )
 
 type envelope struct {

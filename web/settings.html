@@ -319,7 +319,8 @@
     .rule-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; }
     .rule-name { display: flex; min-width: 0; align-items: center; gap: 9px; }
     .rule-name input { max-width: 320px; font-weight: 650; }
-    .rule-actions { display: flex; flex: 0 0 auto; gap: 7px; }
+    .rule-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+    .strict-toggle { display: flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 12px; font-weight: 650; white-space: nowrap; }
 
     .rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     .rule-grid .wide { grid-column: 1 / -1; }
@@ -469,6 +470,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
         <span><strong>Cloak 兼容说明：</strong>兼容模式下，Cloak 的 billing header 保持在 system[0]，Claude Code 身份位于其后；Cloak 已包含该身份时插件不会重复注入。</span>
       </div>
+      <div class="warning">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M3 12h18"/></svg>
+        <span><strong>严格模式：</strong>在具体规则上开启后，命中请求会跳过 CPA Cloak，由插件按参考抓包重建 Claude Code system、metadata 和最终客户端请求头；认证头仍由 CPA 管理。</span>
+      </div>
     </section>
 
     <section class="section">
@@ -497,6 +502,7 @@
       { key: 'unmatched', label: '未匹配', title: '已检查但未满足任何启用规则的请求。' },
       { key: 'injected', label: '新增注入', title: '原请求没有身份提示词，由插件实际修改并插入。' },
       { key: 'already_present', label: '原本已存在', title: '请求到达插件时已有完全相同的身份提示词，因此未重复插入。' },
+      { key: 'strict_takeover', label: '严格接管', title: '命中严格模式规则，由插件跳过 CPA Cloak 并重建 Claude Code 请求体与客户端请求头。' },
       { key: 'effective', label: '有效覆盖', title: '新增注入与原本已存在之和，表示最终具备身份提示词的命中请求。', className: 'effective' },
       { key: 'cloak_skipped', label: 'Cloak 跳过', title: '配置要求在 CPA Cloak 生效时跳过的请求。' },
       { key: 'errors', label: '处理错误', title: '规则命中后解析或修改请求体失败的次数。' }
@@ -562,6 +568,7 @@
       return {
         id: `rule-${Date.now().toString(36)}`,
         enabled: true,
+        strict_mode: false,
         match_providers: false,
         match_auths: false,
         match_upstream_models: false,
@@ -681,7 +688,13 @@
               <input data-key="id" value="${escapeHTML(rule.id || '')}" aria-label="规则 ID" placeholder="规则 ID">
               <label class="switch" title="启用规则"><input data-key="enabled" type="checkbox" ${rule.enabled ? 'checked' : ''}><span class="switch-track"></span></label>
             </div>
-            <div class="rule-actions"><button class="button danger remove" type="button">删除规则</button></div>
+            <div class="rule-actions">
+              <div class="strict-toggle" title="跳过 CPA Cloak，由插件重建 Claude Code 请求体和最终客户端请求头">
+                <span>严格模式</span>
+                <label class="switch"><input data-key="strict_mode" type="checkbox" ${rule.strict_mode ? 'checked' : ''} aria-label="启用严格模式"><span class="switch-track"></span></label>
+              </div>
+              <button class="button danger remove" type="button">删除规则</button>
+            </div>
           </div>
           <div class="rule-grid">
             <div class="condition ${matchProviders ? '' : 'disabled'}">

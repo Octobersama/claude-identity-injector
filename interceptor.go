@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -11,6 +12,7 @@ const identityPrompt = "You are Claude Code, Anthropic's official CLI for Claude
 
 type upstreamRequest struct {
 	RequestID      string       `json:"RequestID"`
+	Phase          string       `json:"Phase"`
 	SourceFormat   string       `json:"SourceFormat"`
 	ToFormat       string       `json:"ToFormat"`
 	Provider       string       `json:"Provider"`
@@ -18,6 +20,7 @@ type upstreamRequest struct {
 	RequestedModel string       `json:"RequestedModel"`
 	Stream         bool         `json:"Stream"`
 	Auth           upstreamAuth `json:"Auth"`
+	Headers        http.Header  `json:"Headers"`
 	Body           []byte       `json:"Body"`
 	HostCallbackID string       `json:"host_callback_id"`
 }
@@ -31,7 +34,10 @@ type upstreamAuth struct {
 }
 
 type upstreamResponse struct {
-	Body []byte `json:"Body,omitempty"`
+	Body              []byte      `json:"Body,omitempty"`
+	Headers           http.Header `json:"Headers,omitempty"`
+	ClearHeaders      []string    `json:"ClearHeaders,omitempty"`
+	BypassClaudeCloak bool        `json:"BypassClaudeCloak,omitempty"`
 }
 
 type systemBlock struct {
@@ -44,6 +50,7 @@ var counters struct {
 	matched      atomic.Uint64
 	injected     atomic.Uint64
 	already      atomic.Uint64
+	strict       atomic.Uint64
 	cloakSkipped atomic.Uint64
 	errors       atomic.Uint64
 }
@@ -59,11 +66,30 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	}
 	counters.seen.Add(1)
 	matchedRule := firstMatchingRule(cfg.Rules, req)
+	if req.Phase == "pre_cloak" {
+		return okEnvelope(upstreamResponse{BypassClaudeCloak: matchedRule != nil && matchedRule.StrictMode})
+	}
 	if matchedRule == nil {
 		logHost(req.HostCallbackID, "debug", "Claude identity injection rule did not match", logFields(req, ""))
 		return okEnvelope(upstreamResponse{})
 	}
 	counters.matched.Add(1)
+	if matchedRule.StrictMode {
+		updated, headers, clearHeaders, errStrict := applyStrictClaudeCodeProfile(req)
+		if errStrict != nil {
+			counters.errors.Add(1)
+			fields := logFields(req, matchedRule.ID)
+			fields["error"] = errStrict.Error()
+			logHost(req.HostCallbackID, "error", "Claude strict profile failed open", fields)
+			return okEnvelope(upstreamResponse{})
+		}
+		counters.injected.Add(1)
+		counters.strict.Add(1)
+		fields := logFields(req, matchedRule.ID)
+		fields["outcome"] = "strict_profile"
+		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
+		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders})
+	}
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)
 	if errInject != nil {
@@ -184,15 +210,21 @@ func injectIdentity(raw []byte, cloakHandling string) ([]byte, string, error) {
 	if errUnmarshal := json.Unmarshal(rawSystem, &blocks); errUnmarshal != nil {
 		return nil, "", &injectError{message: "system must be a string or array"}
 	}
-	for _, rawBlock := range blocks {
-		var block systemBlock
-		if json.Unmarshal(rawBlock, &block) == nil && block.Text == identityPrompt {
+	if len(blocks) > 0 {
+		var first systemBlock
+		if json.Unmarshal(blocks[0], &first) == nil && first.Text == identityPrompt {
 			return nil, "already_present", nil
 		}
 	}
 	if len(blocks) > 0 {
 		var first systemBlock
 		if json.Unmarshal(blocks[0], &first) == nil && strings.HasPrefix(first.Text, "x-anthropic-billing-header:") {
+			for _, rawBlock := range blocks[1:] {
+				var block systemBlock
+				if json.Unmarshal(rawBlock, &block) == nil && block.Text == identityPrompt {
+					return nil, "already_present", nil
+				}
+			}
 			switch cloakHandling {
 			case "skip":
 				return nil, "cloak_skipped", nil
