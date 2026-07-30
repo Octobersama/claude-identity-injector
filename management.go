@@ -55,6 +55,7 @@ type authSummary struct {
 	Disabled    bool   `json:"disabled,omitempty"`
 	Unavailable bool   `json:"unavailable,omitempty"`
 	RuntimeOnly bool   `json:"runtime_only,omitempty"`
+	Source      string `json:"source,omitempty"`
 }
 
 type providerListResponse struct {

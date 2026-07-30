@@ -583,7 +583,7 @@
 
     function providerKeyChoices() {
       return state.auths
-        .filter((auth) => auth.runtime_only)
+        .filter((auth) => auth.source === 'config')
         .map((auth) => ({
           value: auth.auth_index || '',
           label: `${auth.label || auth.name || auth.id || auth.auth_index} · ${auth.provider || 'unknown'}`
@@ -592,7 +592,7 @@
     }
 
     function authChoices() {
-      return state.auths.filter((auth) => !auth.runtime_only).map((auth) => ({ value: auth.auth_index || '', label: authLabel(auth) })).filter((auth) => auth.value);
+      return state.auths.filter((auth) => auth.source !== 'config').map((auth) => ({ value: auth.auth_index || '', label: authLabel(auth) })).filter((auth) => auth.value);
     }
 
     function modelChoices() {
@@ -707,7 +707,7 @@
         state.config = config;
         state.rules = Array.isArray(config.rules) ? structuredClone(config.rules).map((rule) => ({ ...rule, match_requested_models: false, requested_models: [] })) : [];
         state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && !auth.disabled && !auth.unavailable) : [];
-        state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.display_name ? `${model.display_name} · ${model.id}` : model.id })).filter((model) => model.id) : [];
+        state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.id })).filter((model) => model.id) : [];
         element('active').checked = config.active === true;
         element('cloakHandling').value = config.cloak_handling || (config.skip_when_cloaked === false ? 'prepend' : 'compatible');
         element('logMatches').checked = config.log_matches !== false;
@@ -715,7 +715,7 @@
         renderRules();
         renderStats(stats);
         setConnection('已连接', 'connected');
-        setStatus(`已加载 ${providerKeyChoices().length} 个已配置密钥、${state.auths.filter((auth) => !auth.runtime_only).length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
+        setStatus(`已加载 ${providerKeyChoices().length} 个已配置密钥、${state.auths.filter((auth) => auth.source !== 'config').length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
       } catch (error) {
         setConnection('连接失败', 'error');
         setStatus(error.message, 'error');
