@@ -51,6 +51,7 @@ type authSummary struct {
 	AuthIndex   string   `json:"auth_index,omitempty"`
 	Name        string   `json:"name"`
 	Provider    string   `json:"provider,omitempty"`
+	BaseURL     string   `json:"base_url,omitempty"`
 	Models      []string `json:"models,omitempty"`
 	Label       string   `json:"label,omitempty"`
 	Status      string   `json:"status,omitempty"`
