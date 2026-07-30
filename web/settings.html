@@ -488,7 +488,7 @@
     const STATUS_URL = `/v0/management/plugins/${PLUGIN}/status`;
     const CATALOG_URL = `/v0/management/plugins/${PLUGIN}/catalog`;
     const STAT_ITEMS = [
-      { key: 'seen', label: '已检查', title: '所有进入插件规则检查的 Claude 上游请求。' },
+      { key: 'seen', label: '已检查', title: '插件启用时，实际进入规则检查的 Claude 上游请求。' },
       { key: 'matched', label: '命中规则', title: '满足至少一条启用规则的请求。' },
       { key: 'unmatched', label: '未匹配', title: '已检查但未满足任何启用规则的请求。' },
       { key: 'injected', label: '新增注入', title: '原请求没有身份提示词，由插件实际修改并插入。' },

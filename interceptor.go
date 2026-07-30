@@ -53,11 +53,11 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, errUnmarshal
 	}
-	counters.seen.Add(1)
 	cfg := currentConfig()
 	if !cfg.Active || !strings.EqualFold(req.ToFormat, "claude") {
 		return okEnvelope(upstreamResponse{})
 	}
+	counters.seen.Add(1)
 	matchedRule := firstMatchingRule(cfg.Rules, req)
 	if matchedRule == nil {
 		logHost(req.HostCallbackID, "debug", "Claude identity injection rule did not match", logFields(req, ""))
