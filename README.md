@@ -23,7 +23,7 @@ plugins:
   enabled: true
   dir: "plugins"
   configs:
-    claude-system-identity-injector:
+    claude-identity-injector:
       enabled: true
       priority: 100
       active: false
@@ -72,20 +72,20 @@ plugins:
 .\build.ps1 -GccBin "C:\path\to\mingw64\bin"
 ```
 
-产物位于 `dist/claude-system-identity-injector.dll`。脚本会先运行 `go test ./...`。
+产物位于 `dist/claude-identity-injector.dll`。脚本会先运行 `go test ./...`。
 
 ## 安装
 
 将 DLL 放入 CPA 配置目录下的：
 
 ```text
-plugins/windows/amd64/claude-system-identity-injector.dll
+plugins/windows/amd64/claude-identity-injector.dll
 ```
 
 启用全局插件和该插件配置后重启 CPA。设置页路径：
 
 ```text
-/v0/management/plugins/claude-system-identity-injector/settings
+/v0/management/plugins/claude-identity-injector/settings
 ```
 
 页面需要 CPA 管理密钥。它可以读取运行时已启用的 AI 提供商、非敏感 Auth 文件摘要及全局当前可用模型，直接选择提供商、Auth 文件和上游模型，保存配置并触发热更新。不同条件之间使用 AND，同一条件内的多选值使用 OR。
@@ -103,7 +103,7 @@ plugins/windows/amd64/claude-system-identity-injector.dll
 运行计数可从以下接口读取：
 
 ```text
-GET /v0/management/plugins/claude-system-identity-injector/status
+GET /v0/management/plugins/claude-identity-injector/status
 ```
 
 返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`effective`、`cloak_skipped` 和 `errors`。其中 `effective = injected + already_present`，表示最终具备身份提示词的命中请求。

@@ -64,7 +64,7 @@ import (
 const (
 	abiVersion    = 1
 	schemaVersion = 3
-	pluginID      = "claude-system-identity-injector"
+	pluginID      = "claude-identity-injector"
 	pluginVersion = "0.4.0"
 )
 

@@ -1,4 +1,4 @@
-module github.com/Octobersama/claude-system-identity-injector
+module github.com/Octobersama/claude-identity-injector
 
 go 1.24.0
 
