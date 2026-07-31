@@ -16,9 +16,9 @@ import (
 var strictHarnessPrompt string
 
 // strictToolsJSON is a minimal Claude Code core tool set (Bash, Edit, Glob,
-// Grep, Read, Write) captured from the official client. Relays that verify the
-// Claude Code fingerprint reject requests whose tools array is missing or too
-// small, so strict mode injects this set when the client did not send tools.
+// Grep, Read, Write) captured from the official client. Strict mode injects it
+// only when the client did not send executable tools; otherwise client tool
+// definitions are transported under these standard names.
 //
 //go:embed strict_tools.json
 var strictToolsJSON []byte
@@ -41,10 +41,10 @@ type strictCacheControl struct {
 	Type string `json:"type"`
 }
 
-func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []string, error) {
+func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []string, strictToolMapping, error) {
 	var body map[string]json.RawMessage
 	if errUnmarshal := json.Unmarshal(req.Body, &body); errUnmarshal != nil || body == nil {
-		return nil, nil, nil, fmt.Errorf("body must be a JSON object")
+		return nil, nil, nil, strictToolMapping{}, fmt.Errorf("body must be a JSON object")
 	}
 	sessionID := strictSessionID(req)
 	billing := fmt.Sprintf("x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=cli;", strictClaudeVersion, strictClaudeBuild)
@@ -56,8 +56,9 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 	body["system"] = system
 	metadata, _ := json.Marshal(map[string]string{"user_id": strictUserID(req, sessionID)})
 	body["metadata"] = metadata
-	if strictToolsMissing(body["tools"]) {
-		body["tools"] = json.RawMessage(strictToolsJSON)
+	toolMapping, errTools := applyStrictClientToolMapping(body, req.SourceFormat)
+	if errTools != nil {
+		return nil, nil, nil, strictToolMapping{}, fmt.Errorf("map client tools: %w", errTools)
 	}
 	if _, exists := body["thinking"]; !exists {
 		body["thinking"] = json.RawMessage(`{"type":"adaptive"}`)
@@ -70,7 +71,7 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 	}
 	updated, errMarshal := json.Marshal(body)
 	if errMarshal != nil {
-		return nil, nil, nil, errMarshal
+		return nil, nil, nil, strictToolMapping{}, errMarshal
 	}
 	headers := http.Header{
 		"Accept":          []string{"application/json"},
@@ -92,7 +93,7 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 		"X-Stainless-Runtime-Version":               []string{strictRuntime},
 		"X-Stainless-Timeout":                       []string{"600"},
 	}
-	return updated, headers, []string{"x-client-request-id"}, nil
+	return updated, headers, []string{"x-client-request-id"}, toolMapping, nil
 }
 func strictToolsMissing(raw json.RawMessage) bool {
 	if len(raw) == 0 {

@@ -50,13 +50,15 @@ type systemBlock struct {
 }
 
 var counters struct {
-	seen         atomic.Uint64
-	matched      atomic.Uint64
-	injected     atomic.Uint64
-	already      atomic.Uint64
-	strict       atomic.Uint64
-	cloakSkipped atomic.Uint64
-	errors       atomic.Uint64
+	seen              atomic.Uint64
+	matched           atomic.Uint64
+	injected          atomic.Uint64
+	already           atomic.Uint64
+	strict            atomic.Uint64
+	toolMapped        atomic.Uint64
+	toolNamesRestored atomic.Uint64
+	cloakSkipped      atomic.Uint64
+	errors            atomic.Uint64
 }
 
 func handleUpstreamIntercept(raw []byte) ([]byte, error) {
@@ -86,7 +88,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	}
 	counters.matched.Add(1)
 	if matchedRule.StrictMode {
-		updated, headers, clearHeaders, errStrict := applyStrictClaudeCodeProfile(req)
+		updated, headers, clearHeaders, toolMapping, errStrict := applyStrictClaudeCodeProfile(req)
 		if errStrict != nil {
 			counters.errors.Add(1)
 			fields := logFields(req, matchedRule.ID)
@@ -96,6 +98,9 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		}
 		counters.injected.Add(1)
 		counters.strict.Add(1)
+		if toolMapping.Strategy == "client_tools" {
+			counters.toolMapped.Add(1)
+		}
 		fields := logFields(req, matchedRule.ID)
 		fields["outcome"] = "strict_profile"
 		fields["phase"] = req.Phase
@@ -108,6 +113,14 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields["anthropic_beta_sha256"] = strictBetasSHA256()
 		fields["has_context_1m"] = strings.Contains(strictBetas, "context-1m-2025-08-07")
 		fields["body_bytes"] = len(updated)
+		fields["tool_strategy"] = toolMapping.Strategy
+		fields["client_tool_count"] = toolMapping.ClientToolCount
+		fields["upstream_tool_count"] = toolMapping.UpstreamToolCount
+		fields["tool_alias_count"] = toolMapping.AliasCount
+		fields["tool_alias_fallback_count"] = toolMapping.FallbackCount
+		if mappingValue := toolMapping.logValue(); mappingValue != "" {
+			fields["tool_mapping"] = mappingValue
+		}
 		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
 		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true, ReplaceHeaders: true, SkipUpstreamBodyTransforms: true, ForceHTTP1: true})
 	}

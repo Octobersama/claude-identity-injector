@@ -503,6 +503,8 @@
       { key: 'injected', label: '新增注入', title: '原请求没有身份提示词，由插件实际修改并插入。' },
       { key: 'already_present', label: '原本已存在', title: '请求到达插件时已有完全相同的身份提示词，因此未重复插入。' },
       { key: 'strict_takeover', label: '严格接管', title: '命中严格模式规则，由插件跳过 CPA Cloak 并重建 Claude Code 请求体与客户端请求头。' },
+      { key: 'tool_mapped', label: '工具已映射', title: '严格模式保留客户端工具定义，并临时映射为 Claude Code 标准工具名的请求数。' },
+      { key: 'tool_names_restored', label: '工具名已还原', title: '响应翻译前已还原为客户端原工具名的 tool_use 块数量。' },
       { key: 'effective', label: '有效覆盖', title: '新增注入与原本已存在之和，表示最终具备身份提示词的命中请求。', className: 'effective' },
       { key: 'cloak_skipped', label: 'Cloak 跳过', title: '配置要求在 CPA Cloak 生效时跳过的请求。' },
       { key: 'errors', label: '处理错误', title: '规则命中后解析或修改请求体失败的次数。' }

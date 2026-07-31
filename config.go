@@ -59,6 +59,7 @@ type registrationMetadata struct {
 
 type registrationCapabilities struct {
 	UpstreamRequestInterceptor bool `json:"upstream_request_interceptor"`
+	ResponseBeforeTranslator   bool `json:"response_before_translator"`
 	ManagementAPI              bool `json:"management_api"`
 }
 
@@ -114,13 +115,14 @@ func pluginRegistration() registration {
 	return registration{
 		SchemaVersion: schemaVersion,
 		Metadata: registrationMetadata{
-			Name:             "Claude System Identity Injector",
+			Name:             "Claude Identity Injector",
 			Version:          pluginVersion,
 			Author:           "Octobersama",
 			GitHubRepository: "https://github.com/Octobersama/claude-identity-injector",
 		},
 		Capabilities: registrationCapabilities{
 			UpstreamRequestInterceptor: true,
+			ResponseBeforeTranslator:   true,
 			ManagementAPI:              true,
 		},
 	}

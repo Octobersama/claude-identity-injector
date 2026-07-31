@@ -55,7 +55,7 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
 		Body:      []byte(`{"model":"claude-opus-5","messages":[],"tools":[]}`),
 	}
-	updated, headers, clearHeaders, errStrict := applyStrictClaudeCodeProfile(req)
+	updated, headers, clearHeaders, toolMapping, errStrict := applyStrictClaudeCodeProfile(req)
 	if errStrict != nil {
 		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
 	}
@@ -113,29 +113,43 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 	if len(clearHeaders) != 1 || clearHeaders[0] != "x-client-request-id" {
 		t.Fatalf("clearHeaders = %#v", clearHeaders)
 	}
+	if toolMapping.Strategy != "injected_core" || toolMapping.UpstreamToolCount != 6 {
+		t.Fatalf("tool mapping = %#v", toolMapping)
+	}
 }
 
-func TestStrictProfilePreservesClientTools(t *testing.T) {
+func TestStrictProfileAliasesClientTools(t *testing.T) {
 	req := upstreamRequest{
 		RequestID: "request-tools",
 		Stream:    true,
 		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
 		Body:      []byte(`{"model":"claude-opus-5","messages":[],"tools":[{"name":"CustomTool","description":"client tool","input_schema":{"type":"object"}}]}`),
 	}
-	updated, _, _, errStrict := applyStrictClaudeCodeProfile(req)
+	updated, _, _, toolMapping, errStrict := applyStrictClaudeCodeProfile(req)
 	if errStrict != nil {
 		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
 	}
 	var body struct {
 		Tools []struct {
-			Name string `json:"name"`
+			Name        string         `json:"name"`
+			Description string         `json:"description"`
+			InputSchema map[string]any `json:"input_schema"`
 		} `json:"tools"`
 	}
 	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
 		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
 	}
-	if len(body.Tools) != 1 || body.Tools[0].Name != "CustomTool" {
-		t.Fatalf("client tools were replaced: %#v", body.Tools)
+	if len(body.Tools) != 6 {
+		t.Fatalf("mapped tool count = %d, want 6", len(body.Tools))
+	}
+	for index, name := range strictCoreToolNames {
+		tool := body.Tools[index]
+		if tool.Name != name || tool.Description != "client tool" || tool.InputSchema["type"] != "object" {
+			t.Fatalf("tools[%d] = %#v", index, tool)
+		}
+	}
+	if toolMapping.Strategy != "client_tools" || toolMapping.ClientToolCount != 1 || toolMapping.UpstreamToolCount != 6 {
+		t.Fatalf("tool mapping = %#v", toolMapping)
 	}
 }
 
@@ -146,7 +160,7 @@ func TestStrictProfileInjectsToolsWhenMissing(t *testing.T) {
 		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
 		Body:      []byte(`{"model":"claude-opus-5","messages":[]}`),
 	}
-	updated, _, _, errStrict := applyStrictClaudeCodeProfile(req)
+	updated, _, _, toolMapping, errStrict := applyStrictClaudeCodeProfile(req)
 	if errStrict != nil {
 		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
 	}
@@ -160,6 +174,9 @@ func TestStrictProfileInjectsToolsWhenMissing(t *testing.T) {
 	}
 	if len(body.Tools) != 6 {
 		t.Fatalf("injected tool count = %d, want 6", len(body.Tools))
+	}
+	if toolMapping.Strategy != "injected_core" {
+		t.Fatalf("tool mapping strategy = %q", toolMapping.Strategy)
 	}
 }
 

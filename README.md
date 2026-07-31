@@ -1,4 +1,4 @@
-# Claude System Identity Injector
+# Claude Identity Injector
 
 CLIProxyAPI 插件。对匹配的 Anthropic Messages 上游请求，在最终请求体的 `system[0]` 注入：
 
@@ -7,6 +7,8 @@ You are Claude Code, Anthropic's official CLI for Claude.
 ```
 
 规则可单独启用严格模式。严格模式在 CPA Cloak 前声明接管，并在最终上游阶段重建 Claude Code 风格的 system 三段结构、metadata、beta 列表和 Stainless/Claude Code 请求头。API Key/Authorization 认证头仍由 CPA 生成，插件不会读取、保存或记录密钥。
+
+对于 OpenAI/OpenAI Responses 等非 Claude 原生客户端，严格模式会保留客户端工具的 description、schema、参数和额外字段，只在上游传输时把工具名确定性映射为 `Bash`、`Edit`、`Glob`、`Grep`、`Read`、`Write`。客户端工具不足六个时，插件复用真实工具定义生成可还原别名，不注入客户端无法执行的新工具；Anthropic 响应进入 CPA 翻译器前再把 `tool_use.name` 还原成客户端原名。Claude 原生客户端的工具定义保持不变。
 
 行为与 cc-switch 的 Codex -> Anthropic 且启用 `impersonate_claude_code` 链路一致：只有首个 system 文本块已经精确等于上述文本时才跳过。如果相同文本位于后续块，仍会在首位再注入一份。
 
@@ -97,6 +99,8 @@ plugins/windows/amd64/claude-identity-injector.dll
 - 配置应用或拒绝
 - 规则未命中
 - 注入成功或已经存在
+- 严格模式的工具映射策略、客户端/上游工具数量和具体名称映射
+- 响应翻译前还原的客户端工具名和数量
 - 检测到 Cloak 后跳过
 - 无效请求体的 fail-open 错误
 
@@ -106,15 +110,16 @@ plugins/windows/amd64/claude-identity-injector.dll
 GET /v0/management/plugins/claude-identity-injector/status
 ```
 
-返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`effective`、`cloak_skipped` 和 `errors`。其中 `effective = injected + already_present`，表示最终具备身份提示词的命中请求。
+返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`tool_mapped`、`tool_names_restored`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按请求计数，`tool_names_restored` 按响应中的 `tool_use` 块计数；`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
 
 ## 验证
 
 1. 在设置页连接管理 API，新增并启用一条只匹配测试凭证和模型的规则。
 2. 保持默认 `cloak_handling: compatible`，再启用插件的 `active`。
 3. 通过 CPA 发出一条匹配请求，流式和非流式都支持。
-4. 检查 CPA 日志出现 `Claude identity system prompt injected`。
-5. 检查状态接口的 `matched` 和 `injected` 增加。
-6. 未启用 Cloak 时确认身份位于 `system[0]`；启用 Cloak 时确认 billing header 位于 `system[0]` 且身份只出现一次。
+4. 严格模式下用带工具的 OpenCode 请求确认日志出现 `tool_strategy=client_tools` 和 `tool_mapping`。
+5. 让模型实际调用一个工具，确认 OpenCode 收到的是自己的原工具名并能成功执行。
+6. 检查状态接口的 `matched`、`strict_takeover`、`tool_mapped` 和 `tool_names_restored` 增加。
+7. 未启用 Cloak 时确认身份位于 `system[0]`；启用 Cloak 时确认 billing header 位于 `system[0]` 且身份只出现一次。
 
 未命中规则、插件未激活、目标格式不是 Claude、请求体无效时，插件不会阻断上游请求。
