@@ -9,7 +9,7 @@ import (
 var strictCoreToolNames = []string{"Bash", "Edit", "Glob", "Grep", "Read", "Write"}
 
 var strictCoreToolAliases = map[string][]string{
-	"Bash":  {"bash", "shell", "terminal", "exec", "execute", "runcommand", "shellcommand"},
+	"Bash":  {"bash", "shell", "terminal", "exec", "execute", "runshell", "runcommand", "shellcommand"},
 	"Edit":  {"edit", "patch", "applypatch", "modifyfile", "replacefile"},
 	"Glob":  {"glob", "findfiles", "listfiles", "fileglob"},
 	"Grep":  {"grep", "search", "searchfiles", "searchtext", "findtext"},
@@ -125,28 +125,6 @@ func buildStrictClientToolMapping(rawTools json.RawMessage) (json.RawMessage, st
 			assign(canonical, candidateIndex, false)
 			break
 		}
-	}
-
-	for _, canonical := range strictCoreToolNames {
-		if assignedCanonical[canonical] {
-			continue
-		}
-		for candidateIndex := range candidates {
-			if usedCandidate[candidateIndex] {
-				continue
-			}
-			assign(canonical, candidateIndex, true)
-			break
-		}
-	}
-
-	reuseIndex := 0
-	for _, canonical := range strictCoreToolNames {
-		if assignedCanonical[canonical] {
-			continue
-		}
-		assign(canonical, reuseIndex%len(candidates), true)
-		reuseIndex++
 	}
 
 	output := append([]json.RawMessage(nil), tools...)

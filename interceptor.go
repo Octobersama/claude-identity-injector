@@ -50,15 +50,16 @@ type systemBlock struct {
 }
 
 var counters struct {
-	seen              atomic.Uint64
-	matched           atomic.Uint64
-	injected          atomic.Uint64
-	already           atomic.Uint64
-	strict            atomic.Uint64
-	toolMapped        atomic.Uint64
-	toolNamesRestored atomic.Uint64
-	cloakSkipped      atomic.Uint64
-	errors            atomic.Uint64
+	seen               atomic.Uint64
+	matched            atomic.Uint64
+	injected           atomic.Uint64
+	already            atomic.Uint64
+	strict             atomic.Uint64
+	toolMapped         atomic.Uint64
+	toolNamesRestored  atomic.Uint64
+	toolArgumentsFixed atomic.Uint64
+	cloakSkipped       atomic.Uint64
+	errors             atomic.Uint64
 }
 
 func handleUpstreamIntercept(raw []byte) ([]byte, error) {
@@ -98,7 +99,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		}
 		counters.injected.Add(1)
 		counters.strict.Add(1)
-		if toolMapping.Strategy == "client_tools" {
+		if toolMapping.AliasCount > 0 {
 			counters.toolMapped.Add(1)
 		}
 		fields := logFields(req, matchedRule.ID)

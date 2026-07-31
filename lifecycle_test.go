@@ -46,7 +46,7 @@ func TestRegistrationAndSettingsResource(t *testing.T) {
 	if errUnmarshal := json.Unmarshal(registrationRaw, &registrationEnvelope); errUnmarshal != nil {
 		t.Fatalf("Unmarshal(registration) error = %v", errUnmarshal)
 	}
-	if !registrationEnvelope.OK || registrationEnvelope.Result.SchemaVersion != schemaVersion || !registrationEnvelope.Result.Capabilities.UpstreamRequestInterceptor || !registrationEnvelope.Result.Capabilities.ResponseBeforeTranslator || !registrationEnvelope.Result.Capabilities.ManagementAPI {
+	if !registrationEnvelope.OK || registrationEnvelope.Result.SchemaVersion != schemaVersion || !registrationEnvelope.Result.Capabilities.UpstreamRequestInterceptor || !registrationEnvelope.Result.Capabilities.ResponseBeforeTranslator || !registrationEnvelope.Result.Capabilities.ResponseAfterTranslator || !registrationEnvelope.Result.Capabilities.ManagementAPI {
 		t.Fatalf("registration = %#v", registrationEnvelope)
 	}
 

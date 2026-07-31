@@ -84,3 +84,26 @@ func TestApplyStrictClientToolMappingPreservesNativeClaudeTools(t *testing.T) {
 		t.Fatalf("native tools changed: mapping=%#v tools=%s", mapping, body["tools"])
 	}
 }
+
+func TestBuildStrictClientToolMappingDoesNotAliasUnrelatedTools(t *testing.T) {
+	raw := json.RawMessage(`[
+		{"name":"todowrite","description":"todos","input_schema":{"type":"object"}},
+		{"name":"ast_grep_search","description":"ast","input_schema":{"type":"object"}}
+	]`)
+
+	updated, mapping, errMapping := buildStrictClientToolMapping(raw)
+	if errMapping != nil {
+		t.Fatalf("buildStrictClientToolMapping() error = %v", errMapping)
+	}
+	if string(updated) != string(raw) {
+		var got, want any
+		_ = json.Unmarshal(updated, &got)
+		_ = json.Unmarshal(raw, &want)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("unrelated tools changed: %s", updated)
+		}
+	}
+	if len(mapping.CanonicalToClient) != 0 || len(mapping.ClientToCanonical) != 0 || mapping.FallbackCount != 0 || mapping.UpstreamToolCount != 2 {
+		t.Fatalf("mapping = %#v", mapping)
+	}
+}

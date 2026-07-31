@@ -110,7 +110,9 @@ plugins/windows/amd64/claude-identity-injector.dll
 GET /v0/management/plugins/claude-identity-injector/status
 ```
 
-返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`tool_mapped`、`tool_names_restored`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按请求计数，`tool_names_restored` 按响应中的 `tool_use` 块计数；`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
+返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`tool_mapped`、`tool_names_restored`、`tool_arguments_fixed`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按实际发生工具名映射的请求计数，`tool_names_restored` 按响应中的 `tool_use` 块计数，`tool_arguments_fixed` 按依据客户端工具 schema 修复的参数字段计数；`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
+
+对于 Anthropic 上游返回给 OpenAI 兼容客户端的工具调用，插件会在响应翻译完成后依据客户端原始工具 schema 做保守类型修复。只有 schema 明确要求 `array`、`object`、`boolean`、`integer` 或 `number`，且字符串能完整、无歧义地解析为该类型时才转换；声明为 `string` 或联合类型的字段保持原样。日志只记录工具名、字段路径和类型变化，不记录参数值。
 
 ## 验证
 

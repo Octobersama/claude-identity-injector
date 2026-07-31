@@ -139,16 +139,10 @@ func TestStrictProfileAliasesClientTools(t *testing.T) {
 	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
 		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
 	}
-	if len(body.Tools) != 6 {
-		t.Fatalf("mapped tool count = %d, want 6", len(body.Tools))
+	if len(body.Tools) != 1 || body.Tools[0].Name != "CustomTool" || body.Tools[0].Description != "client tool" || body.Tools[0].InputSchema["type"] != "object" {
+		t.Fatalf("tools = %#v", body.Tools)
 	}
-	for index, name := range strictCoreToolNames {
-		tool := body.Tools[index]
-		if tool.Name != name || tool.Description != "client tool" || tool.InputSchema["type"] != "object" {
-			t.Fatalf("tools[%d] = %#v", index, tool)
-		}
-	}
-	if toolMapping.Strategy != "client_tools" || toolMapping.ClientToolCount != 1 || toolMapping.UpstreamToolCount != 6 {
+	if toolMapping.Strategy != "client_tools" || toolMapping.ClientToolCount != 1 || toolMapping.UpstreamToolCount != 1 || toolMapping.FallbackCount != 0 {
 		t.Fatalf("tool mapping = %#v", toolMapping)
 	}
 }

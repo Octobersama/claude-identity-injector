@@ -65,7 +65,7 @@ const (
 	abiVersion    = 1
 	schemaVersion = 3
 	pluginID      = "claude-identity-injector"
-	pluginVersion = "0.5.0"
+	pluginVersion = "0.6.0"
 )
 
 type envelope struct {
@@ -138,6 +138,8 @@ func handleMethod(method string, request []byte) ([]byte, error) {
 		return handleUpstreamIntercept(request)
 	case "response.normalize_before":
 		return handleResponseNormalizeBefore(request)
+	case "response.normalize_after":
+		return handleResponseNormalizeAfter(request)
 	case "management.register":
 		return okEnvelope(managementRegistration())
 	case "management.handle":
