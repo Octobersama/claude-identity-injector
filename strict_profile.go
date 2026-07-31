@@ -2,11 +2,26 @@ package main
 
 import (
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 )
+
+// strictHarnessPrompt is the exact Claude Code harness system prompt captured
+// from the official client (system[2]).
+//
+//go:embed strict_harness.txt
+var strictHarnessPrompt string
+
+// strictToolsJSON is a minimal Claude Code core tool set (Bash, Edit, Glob,
+// Grep, Read, Write) captured from the official client. Relays that verify the
+// Claude Code fingerprint reject requests whose tools array is missing or too
+// small, so strict mode injects this set when the client did not send tools.
+//
+//go:embed strict_tools.json
+var strictToolsJSON []byte
 
 const (
 	strictClaudeVersion = "2.1.220"
@@ -14,22 +29,6 @@ const (
 	strictSDKVersion    = "0.94.0"
 	strictRuntime       = "v26.3.0"
 	strictBetas         = "claude-code-20250219,context-1m-2025-08-07,interleaved-thinking-2025-05-14,redact-thinking-2026-02-12,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,effort-2025-11-24,fallback-credit-2026-06-01"
-	strictCorePrompt    = `You are an interactive agent that helps users with software engineering tasks.
-
-# Harness
-- Text outside tool use is displayed to the user as GitHub-flavored Markdown in a terminal.
-- Tools run behind a user-selected permission mode. Respect denied tool calls and adjust your approach.
-- System reminders and tool results may add context during the conversation.
-- Prefer dedicated file and search tools when available, and preserve the user's existing work.
-
-# Doing tasks
-- Read relevant code before changing it and match the surrounding style.
-- Focus on the requested task, diagnose failures before changing approach, and avoid speculative changes.
-- Write safe, correct code and report outcomes faithfully.
-
-# Tone and style
-- Be concise and direct.
-- Reference code with file_path:line_number when useful.`
 )
 
 type strictTextBlock struct {
@@ -52,11 +51,14 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 	system, _ := json.Marshal([]strictTextBlock{
 		{Type: "text", Text: billing},
 		{Type: "text", Text: identityPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
-		{Type: "text", Text: strictCorePrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
+		{Type: "text", Text: strictHarnessPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
 	})
 	body["system"] = system
 	metadata, _ := json.Marshal(map[string]string{"user_id": strictUserID(req, sessionID)})
 	body["metadata"] = metadata
+	if strictToolsMissing(body["tools"]) {
+		body["tools"] = json.RawMessage(strictToolsJSON)
+	}
 	if _, exists := body["thinking"]; !exists {
 		body["thinking"] = json.RawMessage(`{"type":"adaptive"}`)
 	}
@@ -91,6 +93,16 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 		"X-Stainless-Timeout":                       []string{"600"},
 	}
 	return updated, headers, []string{"x-client-request-id"}, nil
+}
+func strictToolsMissing(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return true
+	}
+	var tools []json.RawMessage
+	if errUnmarshal := json.Unmarshal(raw, &tools); errUnmarshal != nil {
+		return true
+	}
+	return len(tools) == 0
 }
 
 func strictSessionID(req upstreamRequest) string {

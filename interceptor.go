@@ -41,6 +41,7 @@ type upstreamResponse struct {
 	ForceBearerAuthorization   bool        `json:"ForceBearerAuthorization,omitempty"`
 	ReplaceHeaders             bool        `json:"ReplaceHeaders,omitempty"`
 	SkipUpstreamBodyTransforms bool        `json:"SkipUpstreamBodyTransforms,omitempty"`
+	ForceHTTP1                 bool        `json:"ForceHTTP1,omitempty"`
 }
 
 type systemBlock struct {
@@ -101,13 +102,14 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields["replace_headers"] = true
 		fields["force_bearer_authorization"] = true
 		fields["skip_upstream_body_transforms"] = true
+		fields["force_http1"] = true
 		fields["anthropic_beta"] = strictBetas
 		fields["anthropic_beta_bytes"] = len(strictBetas)
 		fields["anthropic_beta_sha256"] = strictBetasSHA256()
 		fields["has_context_1m"] = strings.Contains(strictBetas, "context-1m-2025-08-07")
 		fields["body_bytes"] = len(updated)
 		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
-		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true, ReplaceHeaders: true, SkipUpstreamBodyTransforms: true})
+		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true, ReplaceHeaders: true, SkipUpstreamBodyTransforms: true, ForceHTTP1: true})
 	}
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)

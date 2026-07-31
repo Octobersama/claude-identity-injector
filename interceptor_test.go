@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -59,7 +60,10 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
 	}
 	var body struct {
-		System   []strictTextBlock `json:"system"`
+		System []strictTextBlock `json:"system"`
+		Tools  []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
 		Metadata struct {
 			UserID string `json:"user_id"`
 		} `json:"metadata"`
@@ -72,6 +76,18 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 	}
 	if body.System[1].Text != identityPrompt || body.System[1].CacheControl == nil || body.System[1].CacheControl.Type != "ephemeral" {
 		t.Fatalf("identity block = %#v", body.System[1])
+	}
+	if body.System[2].Text != strictHarnessPrompt || body.System[2].CacheControl == nil || body.System[2].CacheControl.Type != "ephemeral" {
+		t.Fatalf("harness block length = %d, cache = %#v", len(body.System[2].Text), body.System[2].CacheControl)
+	}
+	var toolNames []string
+	for _, tool := range body.Tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	for _, want := range []string{"Bash", "Edit", "Glob", "Grep", "Read", "Write"} {
+		if !slices.Contains(toolNames, want) {
+			t.Fatalf("injected tools missing %s: %v", want, toolNames)
+		}
 	}
 	if !strings.Contains(body.Metadata.UserID, `"device_id"`) || !strings.Contains(body.Metadata.UserID, `"session_id"`) {
 		t.Fatalf("metadata.user_id = %q", body.Metadata.UserID)
@@ -96,6 +112,54 @@ func TestStrictProfileMatchesCapturedClaudeCodeShape(t *testing.T) {
 	}
 	if len(clearHeaders) != 1 || clearHeaders[0] != "x-client-request-id" {
 		t.Fatalf("clearHeaders = %#v", clearHeaders)
+	}
+}
+
+func TestStrictProfilePreservesClientTools(t *testing.T) {
+	req := upstreamRequest{
+		RequestID: "request-tools",
+		Stream:    true,
+		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
+		Body:      []byte(`{"model":"claude-opus-5","messages":[],"tools":[{"name":"CustomTool","description":"client tool","input_schema":{"type":"object"}}]}`),
+	}
+	updated, _, _, errStrict := applyStrictClaudeCodeProfile(req)
+	if errStrict != nil {
+		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
+	}
+	var body struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
+	}
+	if len(body.Tools) != 1 || body.Tools[0].Name != "CustomTool" {
+		t.Fatalf("client tools were replaced: %#v", body.Tools)
+	}
+}
+
+func TestStrictProfileInjectsToolsWhenMissing(t *testing.T) {
+	req := upstreamRequest{
+		RequestID: "request-no-tools",
+		Stream:    true,
+		Auth:      upstreamAuth{ID: "auth-1", Index: "idx-1"},
+		Body:      []byte(`{"model":"claude-opus-5","messages":[]}`),
+	}
+	updated, _, _, errStrict := applyStrictClaudeCodeProfile(req)
+	if errStrict != nil {
+		t.Fatalf("applyStrictClaudeCodeProfile() error = %v", errStrict)
+	}
+	var body struct {
+		Tools []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatalf("Unmarshal() error = %v", errUnmarshal)
+	}
+	if len(body.Tools) != 6 {
+		t.Fatalf("injected tool count = %d, want 6", len(body.Tools))
 	}
 }
 
@@ -138,6 +202,48 @@ rules:
 	}
 	if !response.BypassClaudeCloak || len(response.Body) != 0 {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestStrictRuleRequestsHTTP1InFinalPhase(t *testing.T) {
+	cfg, errParse := parseConfig([]byte(`
+active: true
+rules:
+  - id: strict
+    enabled: true
+    strict_mode: true
+    match_auths: true
+    auth_indexes: [idx-1]
+`))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	configState.Lock()
+	previous := configState.value
+	configState.value = cfg
+	configState.Unlock()
+	t.Cleanup(func() {
+		configState.Lock()
+		configState.value = previous
+		configState.Unlock()
+	})
+	raw, _ := json.Marshal(upstreamRequest{Phase: "final", ToFormat: "claude", Auth: upstreamAuth{Index: "idx-1"}, Body: []byte(`{"model":"claude-test","messages":[]}`)})
+	envelopeRaw, errHandle := handleUpstreamIntercept(raw)
+	if errHandle != nil {
+		t.Fatalf("handleUpstreamIntercept() error = %v", errHandle)
+	}
+	var envelope struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if errUnmarshal := json.Unmarshal(envelopeRaw, &envelope); errUnmarshal != nil {
+		t.Fatalf("Unmarshal envelope: %v", errUnmarshal)
+	}
+	var response upstreamResponse
+	if errUnmarshal := json.Unmarshal(envelope.Result, &response); errUnmarshal != nil {
+		t.Fatalf("Unmarshal response: %v", errUnmarshal)
+	}
+	if !response.ForceHTTP1 || !response.ReplaceHeaders || !response.ForceBearerAuthorization || !response.SkipUpstreamBodyTransforms {
+		t.Fatalf("strict response = %#v", response)
 	}
 }
 
