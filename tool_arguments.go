@@ -238,14 +238,33 @@ func decodeJSONValue(raw string) (any, error) {
 }
 
 func normalizeSchemaValue(value any, schema map[string]any, tool, path string) (any, []argumentTypeFix) {
+	normalized, fixes, _ := normalizeSchemaValueDetailed(value, schema, tool, path)
+	return normalized, fixes
+}
+
+func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentTypeFix, []argumentTypeIssue) {
 	typeName, ok := schemaNonAmbiguousType(schema)
 	if !ok {
-		return value, nil
+		return value, nil, nil
 	}
 	var fixes []argumentTypeFix
-	if converted, ok := convertStringValue(value, typeName); ok {
-		value = converted
-		fixes = append(fixes, argumentTypeFix{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName})
+	var issues []argumentTypeIssue
+	conversionFailed := false
+	if _, isString := value.(string); isString && typeName != "string" && supportedRepairType(typeName) {
+		converted, convertedOK, reason := convertStringValueDetailed(value, typeName)
+		if convertedOK {
+			value = converted
+			fixes = append(fixes, argumentTypeFix{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName})
+		} else {
+			conversionFailed = true
+			issues = append(issues, argumentTypeIssue{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName, Reason: reason})
+		}
+	}
+	if supportedRepairType(typeName) && !schemaTypeMatches(value, typeName) {
+		if !conversionFailed {
+			issues = append(issues, argumentTypeIssue{Tool: tool, Path: pathOrRoot(path), From: jsonTypeName(value), To: typeName, Reason: "type_mismatch"})
+		}
+		return value, fixes, issues
 	}
 
 	switch typed := value.(type) {
@@ -256,23 +275,28 @@ func normalizeSchemaValue(value any, schema map[string]any, tool, path string) (
 			if !ok {
 				continue
 			}
-			normalizedChild, childFixes := normalizeSchemaValue(child, propertySchema, tool, joinPath(path, key))
+			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailed(child, propertySchema, tool, joinPath(path, key))
 			if len(childFixes) > 0 {
 				typed[key] = normalizedChild
 				fixes = append(fixes, childFixes...)
 			}
+			issues = append(issues, childIssues...)
 		}
 	case []any:
 		itemSchema, _ := schema["items"].(map[string]any)
+		if itemSchema == nil {
+			break
+		}
 		for index, child := range typed {
-			normalizedChild, childFixes := normalizeSchemaValue(child, itemSchema, tool, joinPath(path, strconv.Itoa(index)))
+			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailed(child, itemSchema, tool, joinPath(path, strconv.Itoa(index)))
 			if len(childFixes) > 0 {
 				typed[index] = normalizedChild
 				fixes = append(fixes, childFixes...)
 			}
+			issues = append(issues, childIssues...)
 		}
 	}
-	return value, fixes
+	return value, fixes, issues
 }
 
 func schemaNonAmbiguousType(schema map[string]any) (string, bool) {
@@ -288,13 +312,21 @@ func schemaNonAmbiguousType(schema map[string]any) (string, bool) {
 }
 
 func convertStringValue(value any, target string) (any, bool) {
+	converted, ok, _ := convertStringValueDetailed(value, target)
+	return converted, ok
+}
+
+func convertStringValueDetailed(value any, target string) (any, bool, string) {
 	raw, ok := value.(string)
-	if !ok || target == "string" || !json.Valid([]byte(raw)) {
-		return nil, false
+	if !ok || target == "string" {
+		return nil, false, "not_convertible"
+	}
+	if !json.Valid([]byte(raw)) {
+		return nil, false, "invalid_json_string"
 	}
 	decoded, errDecode := decodeJSONValue(raw)
 	if errDecode != nil {
-		return nil, false
+		return nil, false, "invalid_json_string"
 	}
 	switch target {
 	case "array":
@@ -312,9 +344,66 @@ func convertStringValue(value any, target string) (any, bool) {
 		ok = false
 	}
 	if !ok {
-		return nil, false
+		return nil, false, "decoded_type_mismatch"
 	}
-	return decoded, true
+	return decoded, true, ""
+}
+
+func supportedRepairType(typeName string) bool {
+	switch typeName {
+	case "array", "object", "boolean", "integer", "number":
+		return true
+	default:
+		return false
+	}
+}
+
+func schemaTypeMatches(value any, typeName string) bool {
+	switch typeName {
+	case "array":
+		_, ok := value.([]any)
+		return ok
+	case "object":
+		_, ok := value.(map[string]any)
+		return ok
+	case "boolean":
+		_, ok := value.(bool)
+		return ok
+	case "integer":
+		number, ok := value.(json.Number)
+		return ok && !strings.ContainsAny(number.String(), ".eE")
+	case "number":
+		_, ok := value.(json.Number)
+		return ok
+	default:
+		return true
+	}
+}
+
+func jsonTypeName(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return "null"
+	case string:
+		return "string"
+	case bool:
+		return "boolean"
+	case json.Number:
+		if strings.ContainsAny(typed.String(), ".eE") {
+			return "number"
+		}
+		return "integer"
+	case float64, float32:
+		return "number"
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "integer"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	default:
+		return "unknown"
+	}
 }
 
 func joinPath(parent, child string) string {

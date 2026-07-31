@@ -139,21 +139,23 @@ func handleManagement(raw []byte) ([]byte, error) {
 			unmatched = seen - matched
 		}
 		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{
-			"active":               cfg.Active,
-			"rules":                len(cfg.Rules),
-			"identity":             identityPrompt,
-			"seen":                 seen,
-			"matched":              matched,
-			"unmatched":            unmatched,
-			"injected":             injected,
-			"already_present":      alreadyPresent,
-			"strict_takeover":      counters.strict.Load(),
-			"tool_mapped":          counters.toolMapped.Load(),
-			"tool_names_restored":  counters.toolNamesRestored.Load(),
-			"tool_arguments_fixed": counters.toolArgumentsFixed.Load(),
-			"effective":            injected + alreadyPresent,
-			"cloak_skipped":        counters.cloakSkipped.Load(),
-			"errors":               counters.errors.Load(),
+			"active":                 cfg.Active,
+			"rules":                  len(cfg.Rules),
+			"identity":               identityPrompt,
+			"seen":                   seen,
+			"matched":                matched,
+			"unmatched":              unmatched,
+			"injected":               injected,
+			"already_present":        alreadyPresent,
+			"strict_takeover":        counters.strict.Load(),
+			"tool_mapped":            counters.toolMapped.Load(),
+			"tool_names_restored":    counters.toolNamesRestored.Load(),
+			"tool_arguments_fixed":   counters.toolArgumentsFixed.Load(),
+			"strict_requests_active": strictRequestCount(),
+			"tool_diagnostics":       toolDiagnosticSnapshot(),
+			"effective":              injected + alreadyPresent,
+			"cloak_skipped":          counters.cloakSkipped.Load(),
+			"errors":                 counters.errors.Load(),
 		}))
 	default:
 		return okEnvelope(managementJSONResponse(http.StatusNotFound, map[string]any{"error": "not_found"}))

@@ -217,6 +217,9 @@ rules:
 }
 
 func TestStrictRuleRequestsHTTP1InFinalPhase(t *testing.T) {
+	const requestID = "strict-final"
+	deleteStrictRequest(requestID)
+	t.Cleanup(func() { deleteStrictRequest(requestID) })
 	cfg, errParse := parseConfig([]byte(`
 active: true
 rules:
@@ -238,7 +241,7 @@ rules:
 		configState.value = previous
 		configState.Unlock()
 	})
-	raw, _ := json.Marshal(upstreamRequest{Phase: "final", ToFormat: "claude", Auth: upstreamAuth{Index: "idx-1"}, Body: []byte(`{"model":"claude-test","messages":[]}`)})
+	raw, _ := json.Marshal(upstreamRequest{RequestID: requestID, Phase: "final", ToFormat: "claude", Auth: upstreamAuth{Index: "idx-1"}, Body: []byte(`{"model":"claude-test","messages":[]}`)})
 	envelopeRaw, errHandle := handleUpstreamIntercept(raw)
 	if errHandle != nil {
 		t.Fatalf("handleUpstreamIntercept() error = %v", errHandle)
@@ -255,6 +258,43 @@ rules:
 	}
 	if !response.ForceHTTP1 || !response.ReplaceHeaders || !response.ForceBearerAuthorization || !response.SkipUpstreamBodyTransforms {
 		t.Fatalf("strict response = %#v", response)
+	}
+	if strictRequest(requestID) == nil {
+		t.Fatal("strict response state was not stored")
+	}
+}
+
+func TestFinalRetryClearsPriorStrictResponseStateWhenRuleDoesNotMatch(t *testing.T) {
+	const requestID = "strict-retry"
+	installStrictTestState(t, requestID, map[string]map[string]any{}, nil)
+	cfg, errParse := parseConfig([]byte(`
+active: true
+rules:
+  - id: strict
+    enabled: true
+    strict_mode: true
+    match_auths: true
+    auth_indexes: [idx-1]
+`))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	configState.Lock()
+	previous := configState.value
+	configState.value = cfg
+	configState.Unlock()
+	t.Cleanup(func() {
+		configState.Lock()
+		configState.value = previous
+		configState.Unlock()
+	})
+
+	raw, _ := json.Marshal(upstreamRequest{RequestID: requestID, Phase: "final", ToFormat: "claude", Auth: upstreamAuth{Index: "idx-2"}, Body: []byte(`{"messages":[]}`)})
+	if _, errHandle := handleUpstreamIntercept(raw); errHandle != nil {
+		t.Fatalf("handleUpstreamIntercept() error = %v", errHandle)
+	}
+	if strictRequest(requestID) != nil {
+		t.Fatal("unmatched retry retained prior strict response state")
 	}
 }
 

@@ -67,6 +67,9 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
 		return nil, errUnmarshal
 	}
+	if req.Phase == "final" {
+		deleteStrictRequest(req.RequestID)
+	}
 	cfg := currentConfig()
 	if !cfg.Active || !strings.EqualFold(req.ToFormat, "claude") {
 		return okEnvelope(upstreamResponse{})
@@ -102,6 +105,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		if toolMapping.AliasCount > 0 {
 			counters.toolMapped.Add(1)
 		}
+		storeStrictRequest(req, toolMapping)
 		fields := logFields(req, matchedRule.ID)
 		fields["outcome"] = "strict_profile"
 		fields["phase"] = req.Phase

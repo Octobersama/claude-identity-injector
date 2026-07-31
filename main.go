@@ -65,7 +65,7 @@ const (
 	abiVersion    = 1
 	schemaVersion = 3
 	pluginID      = "claude-identity-injector"
-	pluginVersion = "0.6.0"
+	pluginVersion = "0.7.0"
 )
 
 type envelope struct {
@@ -127,6 +127,7 @@ func cliproxyPluginFree(ptr unsafe.Pointer, length C.size_t) {
 
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
+	clearStrictRequests()
 	logHost("", "info", "Claude identity injector stopped", nil)
 }
 
@@ -136,10 +137,12 @@ func handleMethod(method string, request []byte) ([]byte, error) {
 		return handleLifecycle(method, request)
 	case "request.intercept_upstream":
 		return handleUpstreamIntercept(request)
-	case "response.normalize_before":
-		return handleResponseNormalizeBefore(request)
-	case "response.normalize_after":
-		return handleResponseNormalizeAfter(request)
+	case "request.complete":
+		return handleRequestComplete(request)
+	case "response.intercept_after":
+		return handleResponseIntercept(request)
+	case "response.intercept_stream_chunk":
+		return handleStreamChunkIntercept(request)
 	case "management.register":
 		return okEnvelope(managementRegistration())
 	case "management.handle":

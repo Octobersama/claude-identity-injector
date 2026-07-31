@@ -381,6 +381,17 @@
 
     .logic-note strong { color: var(--text-primary); }
 
+    .diagnostic-table-wrap { overflow-x: auto; }
+    .diagnostic-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .diagnostic-table th,
+    .diagnostic-table td { padding: 11px 14px; border-top: 1px solid var(--border-color); text-align: left; vertical-align: top; }
+    .diagnostic-table th { border-top: 0; background: color-mix(in srgb, var(--bg-secondary) 66%, transparent); color: var(--text-tertiary); font-weight: 650; white-space: nowrap; }
+    .diagnostic-table td { color: var(--text-secondary); }
+    .diagnostic-table td:first-child { color: var(--text-primary); font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-weight: 650; }
+    .diagnostic-table .number { width: 1%; text-align: right; white-space: nowrap; }
+    .diagnostic-issue { min-width: 260px; line-height: 1.45; }
+    .diagnostic-issue code { color: var(--text-primary); font: inherit; }
+
     .empty { padding: 42px 20px; color: var(--text-secondary); text-align: center; }
     .empty strong { display: block; margin-bottom: 5px; color: var(--text-primary); }
 
@@ -488,6 +499,16 @@
       <div class="logic-note"><strong>匹配关系：</strong>启用的不同条件之间是“且（AND）”；同一条件中选择多个值是“或（OR）”。关闭的条件不参与匹配。</div>
       <div id="rules" class="rules-list"></div>
     </section>
+
+    <section class="section">
+      <div class="section-header">
+        <div class="section-title">
+          <h2>严格模式工具诊断</h2>
+          <p>仅统计本插件成功接管的严格模式请求；不记录工具参数值或请求正文。</p>
+        </div>
+      </div>
+      <div id="diagnostics"></div>
+    </section>
   </main>
 
   <script>
@@ -503,9 +524,10 @@
       { key: 'injected', label: '新增注入', title: '原请求没有身份提示词，由插件实际修改并插入。' },
       { key: 'already_present', label: '原本已存在', title: '请求到达插件时已有完全相同的身份提示词，因此未重复插入。' },
       { key: 'strict_takeover', label: '严格接管', title: '命中严格模式规则，由插件跳过 CPA Cloak 并重建 Claude Code 请求体与客户端请求头。' },
+      { key: 'strict_requests_active', label: '响应跟踪中', title: '已严格接管、尚未收到请求终止事件的 RequestID 数量。' },
       { key: 'tool_mapped', label: '工具已映射', title: '严格模式保留客户端工具定义，并临时映射为 Claude Code 标准工具名的请求数。' },
-      { key: 'tool_names_restored', label: '工具名已还原', title: '响应翻译前已还原为客户端原工具名的 tool_use 块数量。' },
-      { key: 'tool_arguments_fixed', label: '参数类型已修复', title: '响应翻译后依据客户端工具 schema 保守修复的参数字段数量。' },
+      { key: 'tool_names_restored', label: '工具名已还原', title: '最终客户端响应中已还原为原工具名的字段数量。' },
+      { key: 'tool_arguments_fixed', label: '参数类型已修复', title: '最终客户端响应中依据原工具 Schema 保守修复的参数字段数量。' },
       { key: 'effective', label: '有效覆盖', title: '新增注入与原本已存在之和，表示最终具备身份提示词的命中请求。', className: 'effective' },
       { key: 'cloak_skipped', label: 'Cloak 跳过', title: '配置要求在 CPA Cloak 生效时跳过的请求。' },
       { key: 'errors', label: '处理错误', title: '规则命中后解析或修改请求体失败的次数。' }
@@ -744,6 +766,43 @@
       `).join('');
     }
 
+    function diagnosticReason(reason) {
+      const labels = {
+        invalid_arguments_json: '参数不是完整 JSON',
+        invalid_json_string: '字符串不是单个完整 JSON 值',
+        decoded_type_mismatch: '字符串内容类型仍不符合 Schema',
+        type_mismatch: '实际类型不符合 Schema',
+        encode_failed: '修复后无法编码',
+        not_convertible: '该值不可安全转换'
+      };
+      return labels[reason] || reason || '未知原因';
+    }
+
+    function renderDiagnostics(data = {}) {
+      const diagnostics = Array.isArray(data.tool_diagnostics) ? data.tool_diagnostics : [];
+      if (!diagnostics.length) {
+        element('diagnostics').innerHTML = '<div class="empty"><strong>暂无工具诊断</strong>严格模式完成工具调用后，这里会显示按工具聚合的修复结果。</div>';
+        return;
+      }
+      element('diagnostics').innerHTML = `<div class="diagnostic-table-wrap"><table class="diagnostic-table">
+        <thead><tr><th>工具</th><th class="number">已检查调用</th><th class="number">名称还原</th><th class="number">字段修复</th><th class="number">无法修复</th><th>最近问题</th></tr></thead>
+        <tbody>${diagnostics.map((item) => {
+          const issue = item.last_issue;
+          const issueText = issue
+            ? `<div class="diagnostic-issue"><code>${escapeHTML(issue.path || '$')}</code> · ${escapeHTML(issue.from || 'unknown')} → ${escapeHTML(issue.to || 'unknown')}<br>${escapeHTML(diagnosticReason(issue.reason))}</div>`
+            : '<span class="field-hint">无</span>';
+          return `<tr>
+            <td>${escapeHTML(item.tool || '(unknown)')}</td>
+            <td class="number">${Number(item.calls_inspected || 0)}</td>
+            <td class="number">${Number(item.names_restored || 0)}</td>
+            <td class="number">${Number(item.fields_fixed || 0)}</td>
+            <td class="number">${Number(item.unfixable_issues || 0)}</td>
+            <td>${issueText}</td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table></div>`;
+    }
+
     async function connect() {
       state.key = element('key').value.trim();
       if (!state.key) {
@@ -769,6 +828,7 @@
         element('save').disabled = false;
         renderRules();
         renderStats(stats);
+        renderDiagnostics(stats);
         setConnection('已连接', 'connected');
         setStatus(`已加载 ${providerKeyChoices().length} 个已配置密钥、${state.auths.filter((auth) => auth.source !== 'config').length} 个 Auth 文件、${state.models.length} 个可用模型和 ${state.rules.length} 条规则。`, 'success');
       } catch (error) {
@@ -827,6 +887,7 @@
     element('add').addEventListener('click', () => { state.rules.push(createRule()); renderRules(); });
     renderStats();
     renderRules();
+    renderDiagnostics();
     if (state.key) connect();
   </script>
 </body>

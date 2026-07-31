@@ -59,8 +59,9 @@ type registrationMetadata struct {
 
 type registrationCapabilities struct {
 	UpstreamRequestInterceptor bool `json:"upstream_request_interceptor"`
-	ResponseBeforeTranslator   bool `json:"response_before_translator"`
-	ResponseAfterTranslator    bool `json:"response_after_translator"`
+	RequestLifecyclePlugin     bool `json:"request_lifecycle_plugin"`
+	ResponseInterceptor        bool `json:"response_interceptor"`
+	StreamChunkInterceptor     bool `json:"response_stream_interceptor"`
 	ManagementAPI              bool `json:"management_api"`
 }
 
@@ -123,8 +124,9 @@ func pluginRegistration() registration {
 		},
 		Capabilities: registrationCapabilities{
 			UpstreamRequestInterceptor: true,
-			ResponseBeforeTranslator:   true,
-			ResponseAfterTranslator:    true,
+			RequestLifecyclePlugin:     true,
+			ResponseInterceptor:        true,
+			StreamChunkInterceptor:     true,
 			ManagementAPI:              true,
 		},
 	}
