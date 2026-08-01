@@ -44,6 +44,38 @@ metadata 的改写，避免身份模拟对模型行为和工具调用质量造�
 
 未配置 `strict_profile` 的旧规则按 `full` 处理，保证升级后行为不变。
 
+## 实测结果（2026-08-01，AnyRouter `claude-opus-5`）
+
+测试固定使用同一 AnyRouter 凭证、同一模型和短请求，并分别通过管理面板
+`api-call` 与真实 `/v1/messages` 入口验证。面板直连不会经过 Claude executor 的
+默认头和认证流程，因此只能作为辅助对照；真实结论以 `/v1/messages` 为准。
+
+| 场景 | 档位 | 结果 | 说明 |
+| --- | --- | --- | --- |
+| 面板无工具探针 | `minimal` / `identity` / `system` / `headers` | 503 | 只有 beta 或 system/头单侧改写不足以通过 |
+| 面板无工具探针 | `body` / `body_headers` | 520 | 完整 body 单独或与头组合仍失败 |
+| 面板无工具探针 | `full` | 200 | 缺工具时注入六个核心工具后通过 |
+| 真实 Claude 入口、无工具 | `minimal` / `bearer` / `bearer_http1` | 401 | 仅 beta、认证转换或 HTTP/1.1 不足 |
+| 真实 Claude 入口、无工具 | `body_core` | 401 | 完整 body + 缺失时核心工具仍缺少完整固定头 |
+| 真实 Claude 入口、无工具 | `body_headers_core` | 200，连续 3 次 | 当前无工具请求的最低稳定组合 |
+| 真实 Claude 入口、无工具 | `full` | 200 | 与 `body_headers_core` 等价通过，但保留旧映射逻辑 |
+| 真实 Claude 入口、已有单个自定义工具 | `body_headers_core` | 520 | 仅保留任意客户端工具不能通过检测 |
+| OpenCode 风格六个小写工具 | `body_headers_core` | 429 | 保留小写工具未通过；日志显示完整头/body 已到达上游 |
+| OpenCode 风格六个小写工具 | `full` | 200 | 已知别名映射为 Claude Code 核心名称后通过 |
+
+因此推荐采用按请求形态的策略：
+
+1. 没有客户端工具的普通 Claude 请求可以使用 `body_headers_core`，它不做客户端
+   工具别名映射，只在完全缺少工具时注入核心工具。
+2. 带 OpenCode 工具的请求继续使用 `full`，因为当前 AnyRouter 会检查工具集合的
+   Claude Code 形态；插件只映射已识别的 Claude Code 工具别名，不会把无关工具强行
+   改名。响应阶段仍按原始 Schema 恢复客户端名称和参数字段。
+3. 对任意自定义工具，尚无证据表明可以在不映射或不补充 Claude Code 工具的情况
+   下通过 AnyRouter；不应把 520/429 直接归因于模型能力，需结合上游状态和日志判断。
+
+这组实验没有修改 CPA 本体，也没有记录认证值或请求正文；日志仅记录档位、头键、
+beta 摘要、body 字节数、工具策略、HTTP 协议和状态码。
+
 ## 测试顺序
 
 1. 从 `minimal` 开始，用无工具的固定短请求验证状态码和普通响应。
