@@ -147,6 +147,11 @@ func strictProfileFeatures(profile string) strictProfileControls {
 		SkipUpstreamBodyTransforms: true,
 	}
 	switch controls.Profile {
+	case "bearer":
+		controls.ForceBearerAuthorization = true
+	case "bearer_http1":
+		controls.ForceBearerAuthorization = true
+		controls.ForceHTTP1 = true
 	case "identity":
 		controls.IdentityOnly = true
 	case "system":

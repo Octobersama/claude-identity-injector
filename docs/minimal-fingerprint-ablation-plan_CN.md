@@ -29,6 +29,8 @@ metadata 的改写，避免身份模拟对模型行为和工具调用质量造�
 | 档位 | 请求头 | system / metadata / 行为参数 | 工具 |
 | --- | --- | --- | --- |
 | `minimal` | 仅覆盖抓包 beta，其余使用 CPA 默认值 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
+| `bearer` | `minimal` + CPA 管理的 Bearer 认证 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
+| `bearer_http1` | `bearer` + HTTP/1.1 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
 | `identity` | 同 `minimal` | 仅在 system 首位加入身份句 | 完全保留客户端工具 |
 | `system` | 同 `minimal` | 覆盖为官方三段 system | 完全保留客户端工具 |
 | `body` | 同 `minimal` | 官方 system、metadata、thinking、context management、effort | 完全保留客户端工具 |

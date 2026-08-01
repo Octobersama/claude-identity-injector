@@ -35,7 +35,7 @@ func TestInvalidReconfigurePreservesLastValidConfig(t *testing.T) {
 }
 
 func TestParseConfigStrictProfiles(t *testing.T) {
-	profiles := []string{"minimal", "identity", "system", "body", "headers", "body_headers", "full"}
+	profiles := []string{"minimal", "bearer", "bearer_http1", "identity", "system", "body", "headers", "body_headers", "full"}
 	for _, profile := range profiles {
 		t.Run(profile, func(t *testing.T) {
 			raw := []byte("rules:\n  - id: profile\n    strict_profile: " + profile + "\n")

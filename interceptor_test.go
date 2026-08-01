@@ -181,7 +181,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
 		Body:         []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"client system"}],"messages":[],"tools":[{"name":"run_shell","description":"client tool","input_schema":{"type":"object"}}]}`),
 	}
-	for _, profile := range []string{"minimal", "identity", "system", "body", "headers", "body_headers", "full"} {
+	for _, profile := range []string{"minimal", "bearer", "bearer_http1", "identity", "system", "body", "headers", "body_headers", "full"} {
 		t.Run(profile, func(t *testing.T) {
 			updated, headers, clearHeaders, mapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, profile)
 			if errStrict != nil {
@@ -191,7 +191,9 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				t.Fatalf("anthropic-beta = %#v", values)
 			}
 			fullHeaders := profile == "headers" || profile == "body_headers" || profile == "full"
-			if controls.ReplaceHeaders != fullHeaders || controls.ForceHTTP1 != fullHeaders || controls.ForceBearerAuthorization != fullHeaders {
+			wantBearer := profile == "bearer" || profile == "bearer_http1" || fullHeaders
+			wantHTTP1 := profile == "bearer_http1" || fullHeaders
+			if controls.ReplaceHeaders != fullHeaders || controls.ForceHTTP1 != wantHTTP1 || controls.ForceBearerAuthorization != wantBearer {
 				t.Fatalf("header controls = %#v", controls)
 			}
 			if fullHeaders {
@@ -201,7 +203,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 			} else if len(clearHeaders) != 0 {
 				t.Fatalf("clear headers = %v, want none", clearHeaders)
 			}
-			if (profile == "minimal" || profile == "headers") && !slices.Equal(updated, req.Body) {
+			if (profile == "minimal" || profile == "bearer" || profile == "bearer_http1" || profile == "headers") && !slices.Equal(updated, req.Body) {
 				t.Fatalf("profile %q changed body bytes:\n got: %s\nwant: %s", profile, updated, req.Body)
 			}
 			var body map[string]json.RawMessage
@@ -213,7 +215,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch profile {
-			case "minimal", "headers":
+			case "minimal", "bearer", "bearer_http1", "headers":
 				if len(system) != 1 || system[0].Text != "client system" {
 					t.Fatalf("system = %#v", system)
 				}

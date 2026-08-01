@@ -60,6 +60,8 @@ plugins:
 严格模式可通过 `strict_profile` 选择请求改写档位。留空按 `full` 处理以兼容旧配置：
 
 - `minimal`：只补抓包中的 `anthropic-beta`，其余请求头、请求体和客户端工具保持 CPA/客户端原样。
+- `bearer`：在 `minimal` 基础上只把 CPA 管理的 `x-api-key` 转换为 `Authorization: Bearer`。
+- `bearer_http1`：在 `bearer` 基础上只强制使用 HTTP/1.1，不替换其他请求头。
 - `identity`：在 `minimal` 基础上仅补入 Claude Code 身份句。
 - `system`：在 `minimal` 基础上使用抓包中的三段 `system`。
 - `body`：在 `system` 基础上补入 metadata、adaptive thinking、context management 和 effort。
