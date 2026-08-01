@@ -1,6 +1,6 @@
 # 严格模式工具兼容修复计划
 
-> 实施状态：已按本计划完成插件侧实现；未修改 CPA 或管理面板仓库。
+> 实施状态：已完成。插件负责严格响应修复；CPA 仅增加生命周期 ID 的内部透传，管理面板仓库未修改。
 
 ## 目标
 
@@ -13,7 +13,7 @@ JSON 字符串的问题，并补齐 OpenAI Responses 输出格式。修复只作
 - `todowrite.todos`：数组被返回为字符串；
 - `ast_grep_search.paths`：数组被返回为字符串；
 - `ast_grep_replace.paths` / `globs`：数组被返回为字符串；
-- `ast_grep_replace.dry_run`：布尔值被返回为字符串。
+- `ast_grep_replace.dryRun`：模型返回了错误字段名 `dry_run`，且布尔值被编码为字符串。
 
 ## CPA 代码结论
 
@@ -28,12 +28,14 @@ CPA 当前实现具备以下相关能力：
   `response.completed` 事件；
 - Claude OAuth 执行链存在工具名正反向映射，但只服务 OAuth 指纹处理，不会按
   客户端 Schema 修复响应参数类型；
-- 最终 `ResponseInterceptor`、`StreamChunkInterceptor` 和
-  `RequestLifecyclePlugin` 都携带同一个 `RequestID`。
+- handler 的最终 `ResponseInterceptor`、`StreamChunkInterceptor` 和
+  `RequestLifecyclePlugin` 使用同一个生命周期 `RequestID`，但原 Claude executor 的
+  `request.intercept_upstream` 错用了单独的 trace ID，导致插件无法关联严格请求状态。
 
-CPA 没有实现基于客户端工具 Schema 的响应参数类型校正。现有插件 API 已足以
-完成严格请求关联、最终响应修复和生命周期清理，因此本次不修改 CPA 或管理面板
-仓库。
+CPA 没有实现基于客户端工具 Schema 的响应参数校正。本次对 CPA 做最小修改：
+handler 把生命周期 ID 写入内部 execution metadata，Claude executor 的上游插件
+回调优先使用该 ID，并为管理 API/直接 SDK 调用保留 trace ID 回退。没有修改路由、
+协议翻译、认证、Cloak 或管理面板。
 
 ## 实现边界
 
@@ -63,7 +65,11 @@ CPA 没有实现基于客户端工具 Schema 的响应参数类型校正。现�
   `response.output_item.done` 与 `response.completed` 中的完整调用；
 - 忽略 `response.function_call_arguments.delta`，不修改不完整 JSON 分片。
 
-## 类型校正规则
+## 字段名与类型校正规则
+
+字段名仅在忽略大小写及 `_`/`-` 后唯一对应一个 Schema property，且目标字段尚未
+存在时恢复。候选歧义、多个源字段指向同一目标或目标字段已存在时保持原样并记录
+问题。例如 OpenCode 的 `dryRun` 可以从模型返回的 `dry_run` 安全恢复。
 
 仅当客户端 Schema 明确要求以下单一类型，且字符串可完整、无歧义地解析为该
 类型时转换：
@@ -94,7 +100,7 @@ CPA 没有实现基于客户端工具 Schema 的响应参数类型校正。现�
 
 - 非严格请求完全不变；
 - 严格请求状态按 `RequestID` 隔离并在生命周期结束时清理；
-- OpenAI Chat 非流式和 SSE：修复 `todos`、`paths`、`globs`、`dry_run`；
+- OpenAI Chat 非流式和 SSE：修复 `todos`、`paths`、`globs`，并把 `dry_run` 恢复为 `dryRun`；
 - OpenAI Responses 非流式和四类完整流式事件；
 - 工具名请求侧映射与最终响应恢复；
 - 联合类型、字符串字段、非法 JSON 和多段 JSON保持不变；

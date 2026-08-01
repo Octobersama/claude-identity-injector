@@ -773,7 +773,9 @@
         decoded_type_mismatch: '字符串内容类型仍不符合 Schema',
         type_mismatch: '实际类型不符合 Schema',
         encode_failed: '修复后无法编码',
-        not_convertible: '该值不可安全转换'
+        not_convertible: '该值不可安全转换',
+        schema_key_ambiguous: '字段名可对应多个 Schema 字段，未自动修改',
+        schema_key_conflict: '字段名与已有 Schema 字段冲突，未自动修改'
       };
       return labels[reason] || reason || '未知原因';
     }

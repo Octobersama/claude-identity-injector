@@ -146,6 +146,15 @@ func TestNormalizeToolArgumentsUsesOpenAISchema(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolArgumentsDoesNotRestoreSchemaKeyAliasesOutsideStrictMode(t *testing.T) {
+	rawRequest := []byte(`{"tools":[{"type":"function","function":{"name":"AstGrepReplace","parameters":{"type":"object","properties":{"dryRun":{"type":"boolean"}}}}}]}`)
+	rawResponse := []byte(`{"choices":[{"message":{"tool_calls":[{"function":{"name":"AstGrepReplace","arguments":"{\"dry_run\":\"false\"}"}}]}}]}`)
+	updated, fixes := normalizeToolArguments(rawResponse, toolSchemasFromRequest(rawRequest))
+	if len(fixes) != 0 || !bytes.Equal(updated, rawResponse) {
+		t.Fatalf("non-strict aliases changed: updated=%q fixes=%#v", updated, fixes)
+	}
+}
+
 func TestNormalizeToolArgumentsSSEPreservesFraming(t *testing.T) {
 	rawRequest := []byte(`{"tools":[{"name":"TodoWrite","parameters":{"type":"object","properties":{"todos":{"type":"array","items":{"type":"object"}}}}}]}`)
 	raw := []byte("event: delta\r\ndata: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"name\":\"TodoWrite\",\"arguments\":\"{\\\"todos\\\":\\\"[]\\\"}\"}}]}}]}\r\n\r\n")

@@ -72,9 +72,9 @@ func TestFinalResponseInterceptorRepairsKnownOpenCodeFields(t *testing.T) {
 			"paths": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		}),
 		"ast_grep_replace": schema(map[string]any{
-			"paths":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"globs":   map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"dry_run": map[string]any{"type": "boolean"},
+			"paths":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"globs":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"dryRun": map[string]any{"type": "boolean"},
 		}),
 	}, nil)
 	body := []byte(`{"choices":[{"message":{"tool_calls":[` +
@@ -127,10 +127,44 @@ func TestFinalResponseInterceptorRepairsKnownOpenCodeFields(t *testing.T) {
 			if _, ok := arguments["globs"].([]any); !ok {
 				t.Fatalf("ast_grep_replace.globs = %#v", arguments["globs"])
 			}
-			if value, ok := arguments["dry_run"].(bool); !ok || value {
-				t.Fatalf("ast_grep_replace.dry_run = %#v", arguments["dry_run"])
+			if value, ok := arguments["dryRun"].(bool); !ok || value {
+				t.Fatalf("ast_grep_replace.dryRun = %#v", arguments["dryRun"])
+			}
+			if _, exists := arguments["dry_run"]; exists {
+				t.Fatalf("ast_grep_replace retained dry_run alias: %#v", arguments)
 			}
 		}
+	}
+}
+
+func TestStrictResponseLeavesConflictingSchemaKeyAliasesUnchanged(t *testing.T) {
+	state := installStrictTestState(t, "key-conflict", map[string]map[string]any{
+		"ast_grep_replace": schema(map[string]any{"dryRun": map[string]any{"type": "boolean"}}),
+	}, nil)
+	body := []byte(`{"choices":[{"message":{"tool_calls":[{"id":"replace-1","type":"function","function":{"name":"ast_grep_replace","arguments":"{\"dryRun\":true,\"dry_run\":\"false\"}"}}]}}]}`)
+	updated, report := repairStrictResponse(body, "openai", state)
+	if report.Changed || !bytes.Equal(updated, body) {
+		t.Fatalf("conflicting aliases changed: %s", updated)
+	}
+	if len(report.Issues) != 1 || report.Issues[0].Reason != "schema_key_conflict" {
+		t.Fatalf("issues = %#v", report.Issues)
+	}
+}
+
+func TestStrictResponseLeavesAmbiguousSchemaKeyAliasesUnchanged(t *testing.T) {
+	state := installStrictTestState(t, "key-ambiguous", map[string]map[string]any{
+		"tool": schema(map[string]any{
+			"dryRun":  map[string]any{"type": "boolean"},
+			"dry_run": map[string]any{"type": "boolean"},
+		}),
+	}, nil)
+	body := []byte(`{"choices":[{"message":{"tool_calls":[{"id":"tool-1","type":"function","function":{"name":"tool","arguments":"{\"dry-run\":\"false\"}"}}]}}]}`)
+	updated, report := repairStrictResponse(body, "openai", state)
+	if report.Changed || !bytes.Equal(updated, body) {
+		t.Fatalf("ambiguous aliases changed: %s", updated)
+	}
+	if len(report.Issues) != 1 || report.Issues[0].Reason != "schema_key_ambiguous" {
+		t.Fatalf("issues = %#v", report.Issues)
 	}
 }
 

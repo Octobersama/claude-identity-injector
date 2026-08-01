@@ -5,16 +5,23 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 )
 
-type argumentTypeFix struct {
+type argumentFieldFix struct {
 	Tool string
 	Path string
 	From string
 	To   string
+	Kind string
 }
+
+const (
+	argumentFixKindType      = "type"
+	argumentFixKindSchemaKey = "schema_key"
+)
 
 func handleResponseNormalizeAfter(raw []byte) ([]byte, error) {
 	var req responseTransformRequest
@@ -85,13 +92,13 @@ func readToolSchemas(result map[string]map[string]any, raw any) {
 	}
 }
 
-func normalizeToolArguments(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentTypeFix) {
+func normalizeToolArguments(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentFieldFix) {
 	if json.Valid(raw) {
 		return normalizeToolArgumentsJSON(raw, schemas)
 	}
 
 	lines := bytes.SplitAfter(raw, []byte("\n"))
-	var fixes []argumentTypeFix
+	var fixes []argumentFieldFix
 	changed := false
 	for index, line := range lines {
 		content, ending := splitLineEnding(line)
@@ -123,7 +130,7 @@ func normalizeToolArguments(raw []byte, schemas map[string]map[string]any) ([]by
 	return bytes.Join(lines, nil), fixes
 }
 
-func normalizeToolArgumentsJSON(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentTypeFix) {
+func normalizeToolArgumentsJSON(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentFieldFix) {
 	value, errDecode := decodeJSONValue(string(raw))
 	if errDecode != nil {
 		return raw, nil
@@ -153,7 +160,7 @@ func splitLineEnding(line []byte) ([]byte, []byte) {
 	return content, ending
 }
 
-func normalizeToolArgumentsValue(value any, schemas map[string]map[string]any) []argumentTypeFix {
+func normalizeToolArgumentsValue(value any, schemas map[string]map[string]any) []argumentFieldFix {
 	root, ok := value.(map[string]any)
 	if !ok {
 		return nil
@@ -163,7 +170,7 @@ func normalizeToolArgumentsValue(value any, schemas map[string]map[string]any) [
 		return nil
 	}
 
-	var fixes []argumentTypeFix
+	var fixes []argumentFieldFix
 	for _, choiceValue := range choices {
 		choice, ok := choiceValue.(map[string]any)
 		if !ok {
@@ -180,13 +187,13 @@ func normalizeToolArgumentsValue(value any, schemas map[string]map[string]any) [
 	return fixes
 }
 
-func normalizeToolCalls(raw any, schemas map[string]map[string]any) []argumentTypeFix {
+func normalizeToolCalls(raw any, schemas map[string]map[string]any) []argumentFieldFix {
 	toolCalls, ok := raw.([]any)
 	if !ok {
 		return nil
 	}
 
-	var fixes []argumentTypeFix
+	var fixes []argumentFieldFix
 	for _, callValue := range toolCalls {
 		call, ok := callValue.(map[string]any)
 		if !ok {
@@ -237,24 +244,32 @@ func decodeJSONValue(raw string) (any, error) {
 	return value, nil
 }
 
-func normalizeSchemaValue(value any, schema map[string]any, tool, path string) (any, []argumentTypeFix) {
+func normalizeSchemaValue(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix) {
 	normalized, fixes, _ := normalizeSchemaValueDetailed(value, schema, tool, path)
 	return normalized, fixes
 }
 
-func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentTypeFix, []argumentTypeIssue) {
+func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix, []argumentTypeIssue) {
+	return normalizeSchemaValueDetailedWithKeyRestore(value, schema, tool, path, false)
+}
+
+func normalizeStrictSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix, []argumentTypeIssue) {
+	return normalizeSchemaValueDetailedWithKeyRestore(value, schema, tool, path, true)
+}
+
+func normalizeSchemaValueDetailedWithKeyRestore(value any, schema map[string]any, tool, path string, restoreKeys bool) (any, []argumentFieldFix, []argumentTypeIssue) {
 	typeName, ok := schemaNonAmbiguousType(schema)
 	if !ok {
 		return value, nil, nil
 	}
-	var fixes []argumentTypeFix
+	var fixes []argumentFieldFix
 	var issues []argumentTypeIssue
 	conversionFailed := false
 	if _, isString := value.(string); isString && typeName != "string" && supportedRepairType(typeName) {
 		converted, convertedOK, reason := convertStringValueDetailed(value, typeName)
 		if convertedOK {
 			value = converted
-			fixes = append(fixes, argumentTypeFix{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName})
+			fixes = append(fixes, argumentFieldFix{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName, Kind: argumentFixKindType})
 		} else {
 			conversionFailed = true
 			issues = append(issues, argumentTypeIssue{Tool: tool, Path: pathOrRoot(path), From: "string", To: typeName, Reason: reason})
@@ -270,12 +285,17 @@ func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path s
 	switch typed := value.(type) {
 	case map[string]any:
 		properties, _ := schema["properties"].(map[string]any)
+		if restoreKeys {
+			keyFixes, keyIssues := restoreSchemaObjectKeys(typed, properties, tool, path)
+			fixes = append(fixes, keyFixes...)
+			issues = append(issues, keyIssues...)
+		}
 		for key, child := range typed {
 			propertySchema, ok := properties[key].(map[string]any)
 			if !ok {
 				continue
 			}
-			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailed(child, propertySchema, tool, joinPath(path, key))
+			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailedWithKeyRestore(child, propertySchema, tool, joinPath(path, key), restoreKeys)
 			if len(childFixes) > 0 {
 				typed[key] = normalizedChild
 				fixes = append(fixes, childFixes...)
@@ -288,7 +308,7 @@ func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path s
 			break
 		}
 		for index, child := range typed {
-			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailed(child, itemSchema, tool, joinPath(path, strconv.Itoa(index)))
+			normalizedChild, childFixes, childIssues := normalizeSchemaValueDetailedWithKeyRestore(child, itemSchema, tool, joinPath(path, strconv.Itoa(index)), restoreKeys)
 			if len(childFixes) > 0 {
 				typed[index] = normalizedChild
 				fixes = append(fixes, childFixes...)
@@ -297,6 +317,94 @@ func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path s
 		}
 	}
 	return value, fixes, issues
+}
+
+func restoreSchemaObjectKeys(value, properties map[string]any, tool, path string) ([]argumentFieldFix, []argumentTypeIssue) {
+	if len(value) == 0 || len(properties) == 0 {
+		return nil, nil
+	}
+
+	propertiesByAlias := make(map[string][]string)
+	for property := range properties {
+		alias := schemaKeyAlias(property)
+		if alias != "" {
+			propertiesByAlias[alias] = append(propertiesByAlias[alias], property)
+		}
+	}
+	for alias := range propertiesByAlias {
+		sort.Strings(propertiesByAlias[alias])
+	}
+
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	pending := make(map[string][]string)
+	var issues []argumentTypeIssue
+	for _, key := range keys {
+		if _, exact := properties[key]; exact {
+			continue
+		}
+		matches := propertiesByAlias[schemaKeyAlias(key)]
+		switch len(matches) {
+		case 0:
+			continue
+		case 1:
+			pending[matches[0]] = append(pending[matches[0]], key)
+		default:
+			issues = append(issues, argumentTypeIssue{
+				Tool: tool, Path: pathOrRoot(joinPath(path, key)), From: key,
+				To: strings.Join(matches, "|"), Reason: "schema_key_ambiguous",
+			})
+		}
+	}
+
+	targets := make([]string, 0, len(pending))
+	for target := range pending {
+		targets = append(targets, target)
+	}
+	sort.Strings(targets)
+
+	var fixes []argumentFieldFix
+	for _, target := range targets {
+		sources := pending[target]
+		sort.Strings(sources)
+		_, targetExists := value[target]
+		if targetExists || len(sources) != 1 {
+			for _, source := range sources {
+				issues = append(issues, argumentTypeIssue{
+					Tool: tool, Path: pathOrRoot(joinPath(path, source)), From: source,
+					To: target, Reason: "schema_key_conflict",
+				})
+			}
+			continue
+		}
+
+		source := sources[0]
+		value[target] = value[source]
+		delete(value, source)
+		fixes = append(fixes, argumentFieldFix{
+			Tool: tool, Path: pathOrRoot(joinPath(path, target)), From: source,
+			To: target, Kind: argumentFixKindSchemaKey,
+		})
+	}
+	return fixes, issues
+}
+
+func schemaKeyAlias(key string) string {
+	var normalized strings.Builder
+	for _, character := range strings.ToLower(strings.TrimSpace(key)) {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			normalized.WriteRune(character)
+			continue
+		}
+		if character != '_' && character != '-' {
+			return ""
+		}
+	}
+	return normalized.String()
 }
 
 func schemaNonAmbiguousType(schema map[string]any) (string, bool) {
@@ -420,10 +528,10 @@ func pathOrRoot(path string) string {
 	return path
 }
 
-func summarizeArgumentFixes(fixes []argumentTypeFix) []map[string]string {
+func summarizeArgumentFixes(fixes []argumentFieldFix) []map[string]string {
 	result := make([]map[string]string, 0, len(fixes))
 	for _, fix := range fixes {
-		result = append(result, map[string]string{"tool": fix.Tool, "path": fix.Path, "from": fix.From, "to": fix.To})
+		result = append(result, map[string]string{"tool": fix.Tool, "path": fix.Path, "from": fix.From, "to": fix.To, "kind": fix.Kind})
 	}
 	return result
 }

@@ -18,6 +18,7 @@ type strictRequestState struct {
 	seenRestores map[string]struct{}
 	seenFixes    map[string]struct{}
 	seenIssues   map[string]struct{}
+	responseSeen bool
 }
 
 var strictRequests = struct {
@@ -76,6 +77,10 @@ func storeStrictRequest(req upstreamRequest, mapping strictToolMapping) {
 	strictRequests.Lock()
 	strictRequests.values[req.RequestID] = state
 	strictRequests.Unlock()
+	fields := logFields(req, "")
+	fields["tool_schema_count"] = len(state.Schemas)
+	fields["tool_alias_count"] = len(state.CanonicalToClient)
+	logHost(req.HostCallbackID, "debug", "Claude strict response tracking registered", fields)
 }
 
 func strictRequest(requestID string) *strictRequestState {
@@ -152,6 +157,29 @@ func (state *strictRequestState) claimIssue(key string) bool {
 	return state.claim(state.seenIssues, key)
 }
 
+func (state *strictRequestState) claimResponse() bool {
+	if state == nil {
+		return false
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.responseSeen {
+		return false
+	}
+	state.responseSeen = true
+	return true
+}
+
+func logStrictResponseObserved(callbackID, requestID, sourceFormat, model string, stream bool, state *strictRequestState) {
+	if state == nil || !state.claimResponse() {
+		return
+	}
+	logHost(callbackID, "debug", "Claude strict response tracking correlated", map[string]any{
+		"request_id": requestID, "source_format": sourceFormat, "model": model, "stream": stream,
+		"tool_schema_count": len(state.Schemas),
+	})
+}
+
 func handleRequestComplete(raw []byte) ([]byte, error) {
 	var completion requestCompletion
 	if errUnmarshal := json.Unmarshal(raw, &completion); errUnmarshal != nil {
@@ -170,6 +198,7 @@ func handleResponseIntercept(raw []byte) ([]byte, error) {
 	if state == nil || len(req.Body) == 0 {
 		return okEnvelope(responseInterceptResponse{})
 	}
+	logStrictResponseObserved(req.HostCallbackID, req.RequestID, req.SourceFormat, req.Model, false, state)
 	updated, report := repairStrictResponse(req.Body, req.SourceFormat, state)
 	recordResponseRepair(req.HostCallbackID, req.RequestID, req.SourceFormat, req.Model, false, report)
 	if !report.Changed {
@@ -187,6 +216,7 @@ func handleStreamChunkIntercept(raw []byte) ([]byte, error) {
 	if state == nil || req.ChunkIndex == streamChunkHeaderInitIndex || len(req.Body) == 0 {
 		return okEnvelope(streamChunkInterceptResponse{})
 	}
+	logStrictResponseObserved(req.HostCallbackID, req.RequestID, req.SourceFormat, req.Model, true, state)
 	updated, report := repairStrictResponse(req.Body, req.SourceFormat, state)
 	recordResponseRepair(req.HostCallbackID, req.RequestID, req.SourceFormat, req.Model, true, report)
 	if !report.Changed {

@@ -26,7 +26,7 @@ type toolRepairDelta struct {
 type responseRepairReport struct {
 	Changed         bool
 	ActualRestored  int
-	ActualFixes     []argumentTypeFix
+	ActualFixes     []argumentFieldFix
 	DiagnosticDelta map[string]*toolRepairDelta
 	Issues          []argumentTypeIssue
 }
@@ -231,7 +231,7 @@ func repairFunctionArguments(target map[string]any, field, tool, callID string, 
 		recordArgumentIssue(state, report, callKey, issue)
 		return false
 	}
-	normalized, fixes, issues := normalizeSchemaValueDetailed(arguments, schema, tool, "")
+	normalized, fixes, issues := normalizeStrictSchemaValueDetailed(arguments, schema, tool, "")
 	for _, issue := range issues {
 		recordArgumentIssue(state, report, callKey, issue)
 	}
@@ -247,7 +247,7 @@ func repairFunctionArguments(target map[string]any, field, tool, callID string, 
 	target[field] = string(updatedArguments)
 	report.ActualFixes = append(report.ActualFixes, fixes...)
 	for _, fix := range fixes {
-		if state.claimFix(callKey + "|" + fix.Path + "|" + fix.From + "|" + fix.To) {
+		if state.claimFix(callKey + "|" + fix.Kind + "|" + fix.Path + "|" + fix.From + "|" + fix.To) {
 			report.tool(tool).FieldsFixed++
 		}
 	}

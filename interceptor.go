@@ -302,6 +302,9 @@ func logFields(req upstreamRequest, ruleID string) map[string]any {
 		"upstream_model":  req.Model,
 		"source_format":   req.SourceFormat,
 	}
+	if requestID := strings.TrimSpace(req.RequestID); requestID != "" {
+		fields["request_id"] = requestID
+	}
 	if ruleID != "" {
 		fields["rule_id"] = ruleID
 	}
