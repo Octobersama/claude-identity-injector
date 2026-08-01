@@ -34,6 +34,39 @@ func TestInvalidReconfigurePreservesLastValidConfig(t *testing.T) {
 	}
 }
 
+func TestParseConfigStrictProfiles(t *testing.T) {
+	profiles := []string{"minimal", "identity", "system", "body", "headers", "body_headers", "full"}
+	for _, profile := range profiles {
+		t.Run(profile, func(t *testing.T) {
+			raw := []byte("rules:\n  - id: profile\n    strict_profile: " + profile + "\n")
+			parsed, errParse := parseConfig(raw)
+			if errParse != nil {
+				t.Fatalf("parseConfig() error = %v", errParse)
+			}
+			if got := parsed.Rules[0].StrictProfile; got != profile {
+				t.Fatalf("strict profile = %q, want %q", got, profile)
+			}
+		})
+	}
+}
+
+func TestParseConfigStrictProfileDefaultsToFull(t *testing.T) {
+	parsed, errParse := parseConfig([]byte("rules:\n  - id: legacy\n"))
+	if errParse != nil {
+		t.Fatalf("parseConfig() error = %v", errParse)
+	}
+	if got := parsed.Rules[0].StrictProfile; got != "full" {
+		t.Fatalf("strict profile = %q, want full", got)
+	}
+}
+
+func TestParseConfigRejectsUnknownStrictProfile(t *testing.T) {
+	_, errParse := parseConfig([]byte("rules:\n  - id: invalid\n    strict_profile: unknown\n"))
+	if errParse == nil || !strings.Contains(errParse.Error(), "strict_profile") {
+		t.Fatalf("parseConfig() error = %v, want strict_profile validation error", errParse)
+	}
+}
+
 func TestRegistrationAndSettingsResource(t *testing.T) {
 	registrationRaw, errHandle := handleMethod("plugin.register", nil)
 	if errHandle != nil {

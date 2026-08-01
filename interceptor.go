@@ -92,7 +92,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	}
 	counters.matched.Add(1)
 	if matchedRule.StrictMode {
-		updated, headers, clearHeaders, toolMapping, errStrict := applyStrictClaudeCodeProfile(req)
+		updated, headers, clearHeaders, toolMapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, matchedRule.StrictProfile)
 		if errStrict != nil {
 			counters.errors.Add(1)
 			fields := logFields(req, matchedRule.ID)
@@ -109,10 +109,16 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields := logFields(req, matchedRule.ID)
 		fields["outcome"] = "strict_profile"
 		fields["phase"] = req.Phase
-		fields["replace_headers"] = true
-		fields["force_bearer_authorization"] = true
-		fields["skip_upstream_body_transforms"] = true
-		fields["force_http1"] = true
+		fields["strict_profile"] = controls.Profile
+		fields["identity_only"] = controls.IdentityOnly
+		fields["full_system"] = controls.FullSystem
+		fields["full_body"] = controls.FullBody
+		fields["full_headers"] = controls.FullHeaders
+		fields["map_tools"] = controls.MapTools
+		fields["force_bearer_authorization"] = controls.ForceBearerAuthorization
+		fields["replace_headers"] = controls.ReplaceHeaders
+		fields["skip_upstream_body_transforms"] = controls.SkipUpstreamBodyTransforms
+		fields["force_http1"] = controls.ForceHTTP1
 		fields["anthropic_beta"] = strictBetas
 		fields["anthropic_beta_bytes"] = len(strictBetas)
 		fields["anthropic_beta_sha256"] = strictBetasSHA256()
@@ -127,7 +133,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 			fields["tool_mapping"] = mappingValue
 		}
 		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
-		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: true, ReplaceHeaders: true, SkipUpstreamBodyTransforms: true, ForceHTTP1: true})
+		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: controls.ForceBearerAuthorization, ReplaceHeaders: controls.ReplaceHeaders, SkipUpstreamBodyTransforms: controls.SkipUpstreamBodyTransforms, ForceHTTP1: controls.ForceHTTP1})
 	}
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)

@@ -35,6 +35,7 @@ plugins:
         - id: sample
           enabled: false
           strict_mode: false
+          strict_profile: full
           match_providers: true
           match_auths: false
           match_requested_models: false
@@ -55,6 +56,18 @@ plugins:
 `active` 默认是 `false`，安装后不会立即修改请求。`enabled` 控制 CPA 是否加载插件，`active` 控制插件是否执行注入。
 
 `strict_mode` 是规则级开关。命中严格规则时，插件跳过 CPA 内置 Claude Cloak，避免 Cloak 的 system 搬移、伪造 metadata 或敏感词混淆先行产生不可逆改动；未启用严格模式的规则继续使用下面的 `cloak_handling` 兼容策略。
+
+严格模式可通过 `strict_profile` 选择请求改写档位。留空按 `full` 处理以兼容旧配置：
+
+- `minimal`：只补抓包中的 `anthropic-beta`，其余请求头、请求体和客户端工具保持 CPA/客户端原样。
+- `identity`：在 `minimal` 基础上仅补入 Claude Code 身份句。
+- `system`：在 `minimal` 基础上使用抓包中的三段 `system`。
+- `body`：在 `system` 基础上补入 metadata、adaptive thinking、context management 和 effort。
+- `headers`：保留 CPA 最终 body，只覆盖完整 Claude Code 请求头、Bearer 和 HTTP/1.1。
+- `body_headers`：组合完整 body 与完整请求头，但仍保留客户端工具名和 Schema。
+- `full`：旧版完整模拟，额外执行客户端工具映射或缺失工具注入。
+
+所有档位仍保留严格请求的客户端 Schema 响应修复；该修复不依赖工具映射。
 
 `cloak_handling` 支持三种策略：
 

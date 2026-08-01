@@ -24,6 +24,7 @@ type rule struct {
 	ID                   string   `yaml:"id" json:"id"`
 	Enabled              bool     `yaml:"enabled" json:"enabled"`
 	StrictMode           bool     `yaml:"strict_mode" json:"strict_mode"`
+	StrictProfile        string   `yaml:"strict_profile,omitempty" json:"strict_profile,omitempty"`
 	MatchProviders       *bool    `yaml:"match_providers" json:"match_providers"`
 	MatchAuths           *bool    `yaml:"match_auths" json:"match_auths"`
 	MatchRequestedModels *bool    `yaml:"match_requested_models" json:"match_requested_models"`
@@ -176,6 +177,10 @@ func parseConfig(raw []byte) (config, error) {
 		rule.AuthIndexes = cleanList(rule.AuthIndexes)
 		rule.RequestedModels = cleanList(rule.RequestedModels)
 		rule.UpstreamModels = cleanList(rule.UpstreamModels)
+		rule.StrictProfile = normalizeStrictProfile(rule.StrictProfile)
+		if !validStrictProfile(rule.StrictProfile) {
+			return config{}, fmt.Errorf("rule %q strict_profile must be minimal, identity, system, body, headers, body_headers, or full", rule.ID)
+		}
 		setMatchDefault(&rule.MatchProviders, len(rule.ProviderAuthIndexes) > 0 || len(rule.Providers) > 0)
 		setMatchDefault(&rule.MatchAuths, len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0)
 		setMatchDefault(&rule.MatchRequestedModels, len(rule.RequestedModels) > 0)
@@ -197,6 +202,23 @@ func setMatchDefault(target **bool, value bool) {
 	if *target == nil {
 		*target = new(bool)
 		**target = value
+	}
+}
+
+func normalizeStrictProfile(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return "full"
+	}
+	return value
+}
+
+func validStrictProfile(value string) bool {
+	switch normalizeStrictProfile(value) {
+	case "minimal", "identity", "system", "body", "headers", "body_headers", "full":
+		return true
+	default:
+		return false
 	}
 }
 

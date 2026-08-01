@@ -41,38 +41,83 @@ type strictCacheControl struct {
 	Type string `json:"type"`
 }
 
+type strictProfileControls struct {
+	Profile                    string
+	IdentityOnly               bool
+	FullSystem                 bool
+	FullBody                   bool
+	FullHeaders                bool
+	MapTools                   bool
+	ForceBearerAuthorization   bool
+	ReplaceHeaders             bool
+	SkipUpstreamBodyTransforms bool
+	ForceHTTP1                 bool
+}
+
 func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []string, strictToolMapping, error) {
+	updated, headers, clearHeaders, mapping, _, err := applyStrictClaudeCodeProfileWithProfile(req, "full")
+	return updated, headers, clearHeaders, mapping, err
+}
+
+func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string) ([]byte, http.Header, []string, strictToolMapping, strictProfileControls, error) {
+	controls := strictProfileFeatures(profile)
 	var body map[string]json.RawMessage
 	if errUnmarshal := json.Unmarshal(req.Body, &body); errUnmarshal != nil || body == nil {
-		return nil, nil, nil, strictToolMapping{}, fmt.Errorf("body must be a JSON object")
+		return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("body must be a JSON object")
+	}
+	toolMapping := strictToolMapping{Strategy: "preserved_native", ClientToolCount: strictToolCount(body["tools"]), UpstreamToolCount: strictToolCount(body["tools"])}
+	if controls.MapTools {
+		var errTools error
+		toolMapping, errTools = applyStrictClientToolMapping(body, req.SourceFormat)
+		if errTools != nil {
+			return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("map client tools: %w", errTools)
+		}
+	}
+	if controls.IdentityOnly {
+		updated, _, errInject := injectIdentity(req.Body, "prepend")
+		if errInject != nil {
+			return nil, nil, nil, strictToolMapping{}, controls, errInject
+		}
+		body = nil
+		if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+			return nil, nil, nil, strictToolMapping{}, controls, errUnmarshal
+		}
+	}
+	if controls.FullSystem {
+		billing := fmt.Sprintf("x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=cli;", strictClaudeVersion, strictClaudeBuild)
+		system, _ := json.Marshal([]strictTextBlock{
+			{Type: "text", Text: billing},
+			{Type: "text", Text: identityPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
+			{Type: "text", Text: strictHarnessPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
+		})
+		body["system"] = system
+		if controls.FullBody {
+			sessionID := strictSessionID(req)
+			metadata, _ := json.Marshal(map[string]string{"user_id": strictUserID(req, sessionID)})
+			body["metadata"] = metadata
+			if _, exists := body["thinking"]; !exists {
+				body["thinking"] = json.RawMessage(`{"type":"adaptive"}`)
+			}
+			if _, exists := body["context_management"]; !exists {
+				body["context_management"] = json.RawMessage(`{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`)
+			}
+			if _, exists := body["output_config"]; !exists {
+				body["output_config"] = json.RawMessage(`{"effort":"high"}`)
+			}
+		}
+	}
+	updated := req.Body
+	var errMarshal error
+	if controls.IdentityOnly || controls.FullSystem || controls.MapTools {
+		updated, errMarshal = json.Marshal(body)
+	}
+	if errMarshal != nil {
+		return nil, nil, nil, strictToolMapping{}, controls, errMarshal
+	}
+	if !controls.FullHeaders {
+		return updated, http.Header{"anthropic-beta": []string{strictBetas}}, nil, toolMapping, controls, nil
 	}
 	sessionID := strictSessionID(req)
-	billing := fmt.Sprintf("x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=cli;", strictClaudeVersion, strictClaudeBuild)
-	system, _ := json.Marshal([]strictTextBlock{
-		{Type: "text", Text: billing},
-		{Type: "text", Text: identityPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
-		{Type: "text", Text: strictHarnessPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
-	})
-	body["system"] = system
-	metadata, _ := json.Marshal(map[string]string{"user_id": strictUserID(req, sessionID)})
-	body["metadata"] = metadata
-	toolMapping, errTools := applyStrictClientToolMapping(body, req.SourceFormat)
-	if errTools != nil {
-		return nil, nil, nil, strictToolMapping{}, fmt.Errorf("map client tools: %w", errTools)
-	}
-	if _, exists := body["thinking"]; !exists {
-		body["thinking"] = json.RawMessage(`{"type":"adaptive"}`)
-	}
-	if _, exists := body["context_management"]; !exists {
-		body["context_management"] = json.RawMessage(`{"edits":[{"type":"clear_thinking_20251015","keep":"all"}]}`)
-	}
-	if _, exists := body["output_config"]; !exists {
-		body["output_config"] = json.RawMessage(`{"effort":"high"}`)
-	}
-	updated, errMarshal := json.Marshal(body)
-	if errMarshal != nil {
-		return nil, nil, nil, strictToolMapping{}, errMarshal
-	}
 	headers := http.Header{
 		"Accept":          []string{"application/json"},
 		"Accept-Encoding": []string{"gzip, deflate, br, zstd"},
@@ -93,8 +138,42 @@ func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []s
 		"X-Stainless-Runtime-Version":               []string{strictRuntime},
 		"X-Stainless-Timeout":                       []string{"600"},
 	}
-	return updated, headers, []string{"x-client-request-id"}, toolMapping, nil
+	return updated, headers, []string{"x-client-request-id"}, toolMapping, controls, nil
 }
+
+func strictProfileFeatures(profile string) strictProfileControls {
+	controls := strictProfileControls{
+		Profile:                    normalizeStrictProfile(profile),
+		SkipUpstreamBodyTransforms: true,
+	}
+	switch controls.Profile {
+	case "identity":
+		controls.IdentityOnly = true
+	case "system":
+		controls.FullSystem = true
+	case "body":
+		controls.FullSystem = true
+		controls.FullBody = true
+	case "headers":
+		controls.FullHeaders = true
+	case "body_headers":
+		controls.FullSystem = true
+		controls.FullBody = true
+		controls.FullHeaders = true
+	case "full":
+		controls.FullSystem = true
+		controls.FullBody = true
+		controls.FullHeaders = true
+		controls.MapTools = true
+	}
+	if controls.FullHeaders {
+		controls.ForceBearerAuthorization = true
+		controls.ReplaceHeaders = true
+		controls.ForceHTTP1 = true
+	}
+	return controls
+}
+
 func strictToolsMissing(raw json.RawMessage) bool {
 	if len(raw) == 0 {
 		return true
