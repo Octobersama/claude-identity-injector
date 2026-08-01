@@ -727,11 +727,15 @@
                     ['minimal', '最小候选'],
                     ['bearer', '最小 + Bearer 认证'],
                     ['bearer_http1', 'Bearer + HTTP/1.1'],
+                    ['minimal_core', '最小 + 缺失时核心工具'],
                     ['identity', '最小 + 身份句'],
                     ['system', '最小 + 完整 system'],
                     ['body', '最小 + 完整 body'],
+                    ['body_core', '完整 body + 缺失时核心工具'],
                     ['headers', '仅完整请求头'],
+                    ['headers_soft', '完整请求头（保留认证/协议）'],
                     ['body_headers', '完整 body + 请求头'],
+                    ['body_headers_core', '完整 body/头 + 缺失时核心工具'],
                     ['full', '完整模拟（兼容旧行为）']
                   ].map(([value, label]) => `<option value="${value}" ${(rule.strict_profile || 'full') === value ? 'selected' : ''}>${label}</option>`).join('')}
                 </select>

@@ -62,11 +62,15 @@ plugins:
 - `minimal`：只补抓包中的 `anthropic-beta`，其余请求头、请求体和客户端工具保持 CPA/客户端原样。
 - `bearer`：在 `minimal` 基础上只把 CPA 管理的 `x-api-key` 转换为 `Authorization: Bearer`。
 - `bearer_http1`：在 `bearer` 基础上只强制使用 HTTP/1.1，不替换其他请求头。
+- `minimal_core`：在 `minimal` 基础上仅在请求缺少工具时注入六个 Claude Code 核心工具；已有客户端工具完全保留。
 - `identity`：在 `minimal` 基础上仅补入 Claude Code 身份句。
 - `system`：在 `minimal` 基础上使用抓包中的三段 `system`。
 - `body`：在 `system` 基础上补入 metadata、adaptive thinking、context management 和 effort。
+- `body_core`：在 `body` 基础上仅在缺少工具时注入核心工具，不做客户端工具别名映射。
 - `headers`：保留 CPA 最终 body，只覆盖完整 Claude Code 请求头、Bearer 和 HTTP/1.1。
+- `headers_soft`：覆盖抓包中的完整非认证请求头，但保留 CPA 的认证方式和 HTTP 协议。
 - `body_headers`：组合完整 body 与完整请求头，但仍保留客户端工具名和 Schema。
+- `body_headers_core`：组合完整 body 与请求头，仅在缺少工具时注入核心工具；已有客户端工具不改名。
 - `full`：旧版完整模拟，额外执行客户端工具映射或缺失工具注入。
 
 所有档位仍保留严格请求的客户端 Schema 响应修复；该修复不依赖工具映射。

@@ -114,6 +114,8 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields["full_system"] = controls.FullSystem
 		fields["full_body"] = controls.FullBody
 		fields["full_headers"] = controls.FullHeaders
+		fields["soft_headers"] = controls.SoftHeaders
+		fields["inject_core_tools"] = controls.InjectCoreTools
 		fields["map_tools"] = controls.MapTools
 		fields["force_bearer_authorization"] = controls.ForceBearerAuthorization
 		fields["replace_headers"] = controls.ReplaceHeaders

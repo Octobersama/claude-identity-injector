@@ -174,6 +174,35 @@ func TestStrictProfileInjectsToolsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestStrictCoreProfileInjectsToolsOnlyWhenMissing(t *testing.T) {
+	missing := upstreamRequest{Body: []byte(`{"model":"claude-opus-5","messages":[]}`)}
+	updated, _, _, mapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(missing, "minimal_core")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	if !controls.InjectCoreTools || controls.MapTools || mapping.Strategy != "injected_core" {
+		t.Fatalf("controls/mapping = %#v %#v", controls, mapping)
+	}
+	var injected struct {
+		Tools []json.RawMessage `json:"tools"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &injected); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if len(injected.Tools) != len(strictCoreToolNames) {
+		t.Fatalf("tool count = %d", len(injected.Tools))
+	}
+
+	existing := upstreamRequest{Body: []byte(`{"model":"claude-opus-5","messages":[],"tools":[{"name":"client_tool","input_schema":{"type":"object"}}]}`)}
+	preserved, _, _, mapping, _, errStrict := applyStrictClaudeCodeProfileWithProfile(existing, "minimal_core")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	if !slices.Equal(preserved, existing.Body) || mapping.Strategy != "preserved_native" {
+		t.Fatalf("existing tools changed: body=%s mapping=%#v", preserved, mapping)
+	}
+}
+
 func TestStrictProfileAblationPresets(t *testing.T) {
 	req := upstreamRequest{
 		RequestID:    "request-ablation",
@@ -181,7 +210,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
 		Body:         []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"client system"}],"messages":[],"tools":[{"name":"run_shell","description":"client tool","input_schema":{"type":"object"}}]}`),
 	}
-	for _, profile := range []string{"minimal", "bearer", "bearer_http1", "identity", "system", "body", "headers", "body_headers", "full"} {
+	for _, profile := range []string{"minimal", "bearer", "bearer_http1", "minimal_core", "identity", "system", "body", "body_core", "headers", "headers_soft", "body_headers", "body_headers_core", "full"} {
 		t.Run(profile, func(t *testing.T) {
 			updated, headers, clearHeaders, mapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, profile)
 			if errStrict != nil {
@@ -190,20 +219,21 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 			if values := headers["anthropic-beta"]; len(values) != 1 || values[0] != strictBetas {
 				t.Fatalf("anthropic-beta = %#v", values)
 			}
-			fullHeaders := profile == "headers" || profile == "body_headers" || profile == "full"
+			fullHeaders := profile == "headers" || profile == "body_headers" || profile == "body_headers_core" || profile == "full"
+			softHeaders := profile == "headers_soft"
 			wantBearer := profile == "bearer" || profile == "bearer_http1" || fullHeaders
 			wantHTTP1 := profile == "bearer_http1" || fullHeaders
-			if controls.ReplaceHeaders != fullHeaders || controls.ForceHTTP1 != wantHTTP1 || controls.ForceBearerAuthorization != wantBearer {
+			if controls.ReplaceHeaders != (fullHeaders || softHeaders) || controls.ForceHTTP1 != wantHTTP1 || controls.ForceBearerAuthorization != wantBearer {
 				t.Fatalf("header controls = %#v", controls)
 			}
-			if fullHeaders {
+			if fullHeaders || softHeaders {
 				if len(clearHeaders) != 1 || clearHeaders[0] != "x-client-request-id" {
 					t.Fatalf("clear headers = %v", clearHeaders)
 				}
 			} else if len(clearHeaders) != 0 {
 				t.Fatalf("clear headers = %v, want none", clearHeaders)
 			}
-			if (profile == "minimal" || profile == "bearer" || profile == "bearer_http1" || profile == "headers") && !slices.Equal(updated, req.Body) {
+			if (profile == "minimal" || profile == "bearer" || profile == "bearer_http1" || profile == "headers" || profile == "headers_soft") && !slices.Equal(updated, req.Body) {
 				t.Fatalf("profile %q changed body bytes:\n got: %s\nwant: %s", profile, updated, req.Body)
 			}
 			var body map[string]json.RawMessage
@@ -215,7 +245,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch profile {
-			case "minimal", "bearer", "bearer_http1", "headers":
+			case "minimal", "bearer", "bearer_http1", "minimal_core", "headers", "headers_soft":
 				if len(system) != 1 || system[0].Text != "client system" {
 					t.Fatalf("system = %#v", system)
 				}
@@ -229,7 +259,7 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				}
 			}
 			_, hasMetadata := body["metadata"]
-			wantMetadata := profile == "body" || profile == "body_headers" || profile == "full"
+			wantMetadata := profile == "body" || profile == "body_core" || profile == "body_headers" || profile == "body_headers_core" || profile == "full"
 			if hasMetadata != wantMetadata {
 				t.Fatalf("metadata present = %t, want %t", hasMetadata, wantMetadata)
 			}

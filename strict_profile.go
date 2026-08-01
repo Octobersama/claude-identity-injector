@@ -47,6 +47,8 @@ type strictProfileControls struct {
 	FullSystem                 bool
 	FullBody                   bool
 	FullHeaders                bool
+	SoftHeaders                bool
+	InjectCoreTools            bool
 	MapTools                   bool
 	ForceBearerAuthorization   bool
 	ReplaceHeaders             bool
@@ -66,11 +68,19 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 		return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("body must be a JSON object")
 	}
 	toolMapping := strictToolMapping{Strategy: "preserved_native", ClientToolCount: strictToolCount(body["tools"]), UpstreamToolCount: strictToolCount(body["tools"])}
+	injectedCoreTools := false
 	if controls.MapTools {
 		var errTools error
 		toolMapping, errTools = applyStrictClientToolMapping(body, req.SourceFormat)
 		if errTools != nil {
 			return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("map client tools: %w", errTools)
+		}
+	} else if controls.InjectCoreTools && strictToolsMissing(body["tools"]) {
+		body["tools"] = json.RawMessage(strictToolsJSON)
+		injectedCoreTools = true
+		toolMapping = strictToolMapping{
+			Strategy:          "injected_core",
+			UpstreamToolCount: len(strictCoreToolNames),
 		}
 	}
 	if controls.IdentityOnly {
@@ -108,7 +118,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 	}
 	updated := req.Body
 	var errMarshal error
-	if controls.IdentityOnly || controls.FullSystem || controls.MapTools {
+	if controls.IdentityOnly || controls.FullSystem || injectedCoreTools || controls.MapTools {
 		updated, errMarshal = json.Marshal(body)
 	}
 	if errMarshal != nil {
@@ -152,6 +162,8 @@ func strictProfileFeatures(profile string) strictProfileControls {
 	case "bearer_http1":
 		controls.ForceBearerAuthorization = true
 		controls.ForceHTTP1 = true
+	case "minimal_core":
+		controls.InjectCoreTools = true
 	case "identity":
 		controls.IdentityOnly = true
 	case "system":
@@ -159,12 +171,24 @@ func strictProfileFeatures(profile string) strictProfileControls {
 	case "body":
 		controls.FullSystem = true
 		controls.FullBody = true
+	case "body_core":
+		controls.FullSystem = true
+		controls.FullBody = true
+		controls.InjectCoreTools = true
 	case "headers":
 		controls.FullHeaders = true
+	case "headers_soft":
+		controls.FullHeaders = true
+		controls.SoftHeaders = true
 	case "body_headers":
 		controls.FullSystem = true
 		controls.FullBody = true
 		controls.FullHeaders = true
+	case "body_headers_core":
+		controls.FullSystem = true
+		controls.FullBody = true
+		controls.FullHeaders = true
+		controls.InjectCoreTools = true
 	case "full":
 		controls.FullSystem = true
 		controls.FullBody = true
@@ -172,9 +196,11 @@ func strictProfileFeatures(profile string) strictProfileControls {
 		controls.MapTools = true
 	}
 	if controls.FullHeaders {
-		controls.ForceBearerAuthorization = true
 		controls.ReplaceHeaders = true
-		controls.ForceHTTP1 = true
+		if !controls.SoftHeaders {
+			controls.ForceBearerAuthorization = true
+			controls.ForceHTTP1 = true
+		}
 	}
 	return controls
 }

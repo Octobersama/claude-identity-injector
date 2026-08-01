@@ -31,11 +31,15 @@ metadata 的改写，避免身份模拟对模型行为和工具调用质量造�
 | `minimal` | 仅覆盖抓包 beta，其余使用 CPA 默认值 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
 | `bearer` | `minimal` + CPA 管理的 Bearer 认证 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
 | `bearer_http1` | `bearer` + HTTP/1.1 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
+| `minimal_core` | 仅 beta，缺少工具时注入核心工具 | 其他 body 保留 | 已有工具保留，缺失时注入核心工具 |
 | `identity` | 同 `minimal` | 仅在 system 首位加入身份句 | 完全保留客户端工具 |
 | `system` | 同 `minimal` | 覆盖为官方三段 system | 完全保留客户端工具 |
 | `body` | 同 `minimal` | 官方 system、metadata、thinking、context management、effort | 完全保留客户端工具 |
+| `body_core` | 同 `minimal` | 同 `body` | 仅缺失时注入核心工具 |
 | `headers` | 完整抓包请求头并强制 HTTP/1.1 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
+| `headers_soft` | 完整抓包非认证请求头，保留 CPA 认证和 HTTP 协议 | 完全保留 CPA 最终 body | 完全保留客户端工具 |
 | `body_headers` | 完整抓包请求头并强制 HTTP/1.1 | 同 `body` | 完全保留客户端工具 |
+| `body_headers_core` | 同 `body_headers` | 同 `body` | 仅缺失时注入核心工具 |
 | `full` | 完整抓包请求头并强制 HTTP/1.1 | 同 `body` | 现有 Claude Code 工具映射/缺失工具注入 |
 
 未配置 `strict_profile` 的旧规则按 `full` 处理，保证升级后行为不变。
