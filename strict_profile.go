@@ -122,7 +122,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 	}
 	toolMapping := strictToolMapping{Strategy: "preserved_native", ClientToolCount: strictToolCount(body["tools"]), UpstreamToolCount: strictToolCount(body["tools"])}
 	injectedCoreTools := false
-	if controls.MinimumFingerprint {
+	if policy.MinimumFingerprint {
 		updated, _, errInject := injectIdentity(req.Body, "prepend")
 		if errInject != nil {
 			return nil, nil, nil, strictToolMapping{}, controls, errInject
@@ -144,8 +144,8 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 			controls.ClientSystemBytesMoved = relocation.BytesMoved
 		}
 	}
-	if controls.MapTools {
-		if controls.MinimumFingerprint && strictToolsMissing(body["tools"]) {
+	if policy.Tools == strictToolsMapped {
+		if policy.MinimumFingerprint && strictToolsMissing(body["tools"]) {
 			body["tools"] = json.RawMessage(strictMinimumToolsJSON)
 			toolMapping = strictToolMapping{
 				Strategy:          "injected_minimum",
@@ -159,14 +159,14 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 				return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("map client tools: %w", errTools)
 			}
 		}
-		if controls.MinimumFingerprint && toolMapping.CoreToolCount < 3 {
+		if policy.MinimumFingerprint && toolMapping.CoreToolCount < 3 {
 			var errTools error
 			toolMapping, errTools = ensureStrictMinimumCoreTools(body, toolMapping)
 			if errTools != nil {
 				return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("ensure minimum core tools: %w", errTools)
 			}
 		}
-	} else if controls.InjectCoreTools && strictToolsMissing(body["tools"]) {
+	} else if policy.Tools == strictToolsInjected && strictToolsMissing(body["tools"]) {
 		body["tools"] = json.RawMessage(strictToolsJSON)
 		injectedCoreTools = true
 		toolMapping = strictToolMapping{
@@ -174,7 +174,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 			UpstreamToolCount: len(strictCoreToolNames),
 		}
 	}
-	if controls.IdentityOnly {
+	if policy.System == strictSystemIdentity {
 		updated, _, errInject := injectIdentity(req.Body, "prepend")
 		if errInject != nil {
 			return nil, nil, nil, strictToolMapping{}, controls, errInject
@@ -184,7 +184,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 			return nil, nil, nil, strictToolMapping{}, controls, errUnmarshal
 		}
 	}
-	if controls.FullSystem {
+	if policy.System == strictSystemFull {
 		billing := fmt.Sprintf("x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=cli;", strictClaudeVersion, strictClaudeBuild)
 		system, _ := json.Marshal([]strictTextBlock{
 			{Type: "text", Text: billing},
@@ -192,7 +192,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 			{Type: "text", Text: strictHarnessPrompt, CacheControl: &strictCacheControl{Type: "ephemeral"}},
 		})
 		body["system"] = system
-		if controls.FullBody {
+		if policy.FullBody {
 			sessionID := strictSessionID(req)
 			metadata, _ := json.Marshal(map[string]string{"user_id": strictUserID(req, sessionID)})
 			body["metadata"] = metadata
@@ -209,13 +209,13 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 	}
 	updated := req.Body
 	var errMarshal error
-	if controls.MinimumFingerprint || controls.IdentityOnly || controls.FullSystem || injectedCoreTools || controls.MapTools {
+	if policy.MinimumFingerprint || policy.System != strictSystemNone || injectedCoreTools || policy.Tools == strictToolsMapped {
 		updated, errMarshal = json.Marshal(body)
 	}
 	if errMarshal != nil {
 		return nil, nil, nil, strictToolMapping{}, controls, errMarshal
 	}
-	if controls.MinimumFingerprint {
+	if policy.Headers == strictHeadersMinimum {
 		return updated, http.Header{
 			"anthropic-beta":    []string{strictMinimumBetas},
 			"Anthropic-Version": []string{"2023-06-01"},
@@ -223,7 +223,7 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 			"User-Agent":        []string{fmt.Sprintf("claude-cli/%s (external, cli)", strictClaudeVersion)},
 		}, nil, toolMapping, controls, nil
 	}
-	if !controls.FullHeaders {
+	if policy.Headers == strictHeadersBeta {
 		return updated, http.Header{"anthropic-beta": []string{strictBetas}}, nil, toolMapping, controls, nil
 	}
 	sessionID := strictSessionID(req)

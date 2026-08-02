@@ -131,7 +131,7 @@ plugins/windows/amd64/claude-identity-injector.dll
 GET /v0/management/plugins/claude-identity-injector/status
 ```
 
-返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`strict_requests_active`、`tool_mapped`、`tool_names_restored`、`tool_arguments_fixed`、`tool_diagnostics`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按实际发生工具名映射的请求计数；`strict_requests_active` 是尚未收到终止回调的严格请求数；`tool_diagnostics` 按工具聚合已检查调用、名称还原、字段修复、无法修复及最近问题。缺少生命周期 `RequestID` 的管理 API 探针仍可完成上游请求，但不会进入响应跟踪，也不计入 `errors`。`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
+返回 `seen`、`intercept_calls`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`strict_requests_active`、`tool_mapped`、`tool_names_restored`、`tool_arguments_fixed`、`tool_diagnostics`、`effective`、`cloak_skipped` 和 `errors`。`seen`、`matched`、`unmatched` 及最终 outcome 均按唯一生命周期 `RequestID` 计数；`intercept_calls` 单独记录 `pre_cloak`/`final` 等实际拦截阶段调用次数。重试请求只计一次，若后续最终尝试命中则从 `unmatched` 升级为 `matched`。`tool_mapped` 按实际发生工具名映射的请求计数；`strict_requests_active` 是尚未收到终止回调的严格请求数；`tool_diagnostics` 按工具聚合已检查调用、名称还原、字段修复、无法修复及最近问题。缺少生命周期 `RequestID` 的管理 API 探针仍可完成上游请求，但不会进入响应跟踪，也不计入 `errors`。`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
 
 对于插件已成功接管的严格请求，Anthropic 上游返回给 OpenAI Chat 或 OpenAI Responses 客户端的工具调用会在响应翻译完成后依据客户端原始工具 Schema 做保守修复。字段名仅在忽略大小写及 `_`/`-` 后唯一对应一个 Schema 字段且目标字段不存在时恢复，例如把模型返回的 `dry_run` 恢复为 OpenCode Schema 的 `dryRun`；候选歧义或目标冲突时保持原样并记入诊断。随后，只有 Schema 明确要求 `array`、`object`、`boolean`、`integer` 或 `number`，且字符串能完整、无歧义地解析为该类型时才转换；声明为 `string`、联合类型、非法 JSON 或目标类型不匹配的字段保持原样。插件通过 `RequestID` 隔离并在成功、失败、拒绝或取消后清理状态，普通请求不进入这条链路。日志和管理页均不记录参数值。
 
