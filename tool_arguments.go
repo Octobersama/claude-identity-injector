@@ -23,34 +23,6 @@ const (
 	argumentFixKindSchemaKey = "schema_key"
 )
 
-func handleResponseNormalizeAfter(raw []byte) ([]byte, error) {
-	var req responseTransformRequest
-	if errUnmarshal := json.Unmarshal(raw, &req); errUnmarshal != nil {
-		return nil, errUnmarshal
-	}
-	if !currentConfig().Active || !strings.EqualFold(req.FromFormat, "claude") || !strings.EqualFold(req.ToFormat, "openai") {
-		return okEnvelope(payloadResponse{})
-	}
-
-	schemas := toolSchemasFromRequest(req.OriginalRequest, req.TranslatedRequest)
-	if len(schemas) == 0 {
-		return okEnvelope(payloadResponse{})
-	}
-	updated, fixes := normalizeToolArguments(req.Body, schemas)
-	if len(fixes) == 0 {
-		return okEnvelope(payloadResponse{})
-	}
-	counters.toolArgumentsFixed.Add(uint64(len(fixes)))
-	logHost("", "info", "Claude tool argument types normalized", map[string]any{
-		"from_format": req.FromFormat,
-		"to_format":   req.ToFormat,
-		"model":       req.Model,
-		"stream":      req.Stream,
-		"fixes":       summarizeArgumentFixes(fixes),
-	})
-	return okEnvelope(payloadResponse{Body: updated})
-}
-
 func toolSchemasFromRequest(rawRequests ...[]byte) map[string]map[string]any {
 	result := make(map[string]map[string]any)
 	for _, raw := range rawRequests {
@@ -92,60 +64,6 @@ func readToolSchemas(result map[string]map[string]any, raw any) {
 	}
 }
 
-func normalizeToolArguments(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentFieldFix) {
-	if json.Valid(raw) {
-		return normalizeToolArgumentsJSON(raw, schemas)
-	}
-
-	lines := bytes.SplitAfter(raw, []byte("\n"))
-	var fixes []argumentFieldFix
-	changed := false
-	for index, line := range lines {
-		content, ending := splitLineEnding(line)
-		trimmed := bytes.TrimLeft(content, " \t")
-		if !bytes.HasPrefix(trimmed, []byte("data:")) {
-			continue
-		}
-		prefixLength := len(content) - len(trimmed) + len("data:")
-		payload := bytes.TrimSpace(content[prefixLength:])
-		if len(payload) == 0 || bytes.Equal(payload, []byte("[DONE]")) || !json.Valid(payload) {
-			continue
-		}
-		updated, lineFixes := normalizeToolArgumentsJSON(payload, schemas)
-		if len(lineFixes) == 0 {
-			continue
-		}
-		rebuilt := make([]byte, 0, prefixLength+1+len(updated)+len(ending))
-		rebuilt = append(rebuilt, content[:prefixLength]...)
-		rebuilt = append(rebuilt, ' ')
-		rebuilt = append(rebuilt, updated...)
-		rebuilt = append(rebuilt, ending...)
-		lines[index] = rebuilt
-		fixes = append(fixes, lineFixes...)
-		changed = true
-	}
-	if !changed {
-		return raw, nil
-	}
-	return bytes.Join(lines, nil), fixes
-}
-
-func normalizeToolArgumentsJSON(raw []byte, schemas map[string]map[string]any) ([]byte, []argumentFieldFix) {
-	value, errDecode := decodeJSONValue(string(raw))
-	if errDecode != nil {
-		return raw, nil
-	}
-	fixes := normalizeToolArgumentsValue(value, schemas)
-	if len(fixes) == 0 {
-		return raw, nil
-	}
-	updated, errMarshal := json.Marshal(value)
-	if errMarshal != nil {
-		return raw, nil
-	}
-	return updated, fixes
-}
-
 func splitLineEnding(line []byte) ([]byte, []byte) {
 	content := line
 	ending := []byte{}
@@ -158,73 +76,6 @@ func splitLineEnding(line []byte) ([]byte, []byte) {
 		content = content[:len(content)-1]
 	}
 	return content, ending
-}
-
-func normalizeToolArgumentsValue(value any, schemas map[string]map[string]any) []argumentFieldFix {
-	root, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-	choices, ok := root["choices"].([]any)
-	if !ok {
-		return nil
-	}
-
-	var fixes []argumentFieldFix
-	for _, choiceValue := range choices {
-		choice, ok := choiceValue.(map[string]any)
-		if !ok {
-			continue
-		}
-		for _, messageKey := range []string{"message", "delta"} {
-			message, ok := choice[messageKey].(map[string]any)
-			if !ok {
-				continue
-			}
-			fixes = append(fixes, normalizeToolCalls(message["tool_calls"], schemas)...)
-		}
-	}
-	return fixes
-}
-
-func normalizeToolCalls(raw any, schemas map[string]map[string]any) []argumentFieldFix {
-	toolCalls, ok := raw.([]any)
-	if !ok {
-		return nil
-	}
-
-	var fixes []argumentFieldFix
-	for _, callValue := range toolCalls {
-		call, ok := callValue.(map[string]any)
-		if !ok {
-			continue
-		}
-		function, ok := call["function"].(map[string]any)
-		if !ok {
-			continue
-		}
-		name, _ := function["name"].(string)
-		rawArguments, ok := function["arguments"].(string)
-		schema, schemaFound := schemas[name]
-		if !ok || name == "" || !schemaFound {
-			continue
-		}
-		arguments, errDecode := decodeJSONValue(rawArguments)
-		if errDecode != nil {
-			continue
-		}
-		normalizedArguments, argumentFixes := normalizeSchemaValue(arguments, schema, name, "")
-		if len(argumentFixes) == 0 {
-			continue
-		}
-		updatedArguments, errMarshal := json.Marshal(normalizedArguments)
-		if errMarshal != nil {
-			continue
-		}
-		function["arguments"] = string(updatedArguments)
-		fixes = append(fixes, argumentFixes...)
-	}
-	return fixes
 }
 
 func decodeJSONValue(raw string) (any, error) {
@@ -242,15 +93,6 @@ func decodeJSONValue(raw string) (any, error) {
 		return nil, errTrailing
 	}
 	return value, nil
-}
-
-func normalizeSchemaValue(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix) {
-	normalized, fixes, _ := normalizeSchemaValueDetailed(value, schema, tool, path)
-	return normalized, fixes
-}
-
-func normalizeSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix, []argumentTypeIssue) {
-	return normalizeSchemaValueDetailedWithKeyRestore(value, schema, tool, path, false)
 }
 
 func normalizeStrictSchemaValueDetailed(value any, schema map[string]any, tool, path string) (any, []argumentFieldFix, []argumentTypeIssue) {
