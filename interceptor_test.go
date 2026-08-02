@@ -290,6 +290,36 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 	}
 }
 
+func TestStrictProfilePolicyMatrix(t *testing.T) {
+	tests := []struct {
+		profile                 string
+		system                  strictSystemMode
+		body                    bool
+		tools                   strictToolMode
+		headers                 strictHeaderMode
+		forceBearer, forceHTTP1 bool
+	}{
+		{profile: "minimal", headers: strictHeadersBeta},
+		{profile: "minimum", headers: strictHeadersMinimum, tools: strictToolsMapped, forceBearer: false},
+		{profile: "identity", system: strictSystemIdentity, headers: strictHeadersBeta},
+		{profile: "body_core", system: strictSystemFull, body: true, tools: strictToolsInjected, headers: strictHeadersBeta},
+		{profile: "headers_soft", headers: strictHeadersSoft},
+		{profile: "full", system: strictSystemFull, body: true, tools: strictToolsMapped, headers: strictHeadersFull, forceBearer: true, forceHTTP1: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.profile, func(t *testing.T) {
+			policy := strictProfilePolicyFor(tt.profile)
+			if policy.System != tt.system || policy.FullBody != tt.body || policy.Tools != tt.tools || policy.Headers != tt.headers || policy.ForceBearer != tt.forceBearer || policy.ForceHTTP1 != tt.forceHTTP1 {
+				t.Fatalf("policy = %#v", policy)
+			}
+			controls := strictProfileControlsFromPolicy(policy)
+			if controls.Profile != tt.profile || controls.FullSystem != (tt.system == strictSystemFull) || controls.IdentityOnly != (tt.system == strictSystemIdentity) || controls.FullBody != tt.body || controls.MapTools != (tt.tools == strictToolsMapped) || controls.InjectCoreTools != (tt.tools == strictToolsInjected) || controls.FullHeaders != (tt.headers == strictHeadersFull || tt.headers == strictHeadersSoft) {
+				t.Fatalf("controls = %#v", controls)
+			}
+		})
+	}
+}
+
 func TestMinimumStrictProfilePreservesClientBodyAndAddsOnlyFingerprint(t *testing.T) {
 	req := upstreamRequest{
 		RequestID:    "minimum-request",

@@ -69,13 +69,53 @@ type strictProfileControls struct {
 	ClientSystemBytesMoved     int
 }
 
+type strictSystemMode uint8
+
+const (
+	strictSystemNone strictSystemMode = iota
+	strictSystemIdentity
+	strictSystemFull
+)
+
+type strictToolMode uint8
+
+const (
+	strictToolsPreserved strictToolMode = iota
+	strictToolsInjected
+	strictToolsMapped
+)
+
+type strictHeaderMode uint8
+
+const (
+	strictHeadersBeta strictHeaderMode = iota
+	strictHeadersMinimum
+	strictHeadersFull
+	strictHeadersSoft
+)
+
+// strictProfilePolicy is the canonical internal description of a profile.
+// strictProfileControls remains the observable compatibility shape used by
+// logs and tests.
+type strictProfilePolicy struct {
+	Name               string
+	System             strictSystemMode
+	FullBody           bool
+	Tools              strictToolMode
+	Headers            strictHeaderMode
+	MinimumFingerprint bool
+	ForceBearer        bool
+	ForceHTTP1         bool
+}
+
 func applyStrictClaudeCodeProfile(req upstreamRequest) ([]byte, http.Header, []string, strictToolMapping, error) {
 	updated, headers, clearHeaders, mapping, _, err := applyStrictClaudeCodeProfileWithProfile(req, "full")
 	return updated, headers, clearHeaders, mapping, err
 }
 
 func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string) ([]byte, http.Header, []string, strictToolMapping, strictProfileControls, error) {
-	controls := strictProfileFeatures(profile)
+	policy := strictProfilePolicyFor(profile)
+	controls := strictProfileControlsFromPolicy(policy)
 	var body map[string]json.RawMessage
 	if errUnmarshal := json.Unmarshal(req.Body, &body); errUnmarshal != nil || body == nil {
 		return nil, nil, nil, strictToolMapping{}, controls, fmt.Errorf("body must be a JSON object")
@@ -211,59 +251,79 @@ func applyStrictClaudeCodeProfileWithProfile(req upstreamRequest, profile string
 }
 
 func strictProfileFeatures(profile string) strictProfileControls {
-	controls := strictProfileControls{
-		Profile:                    normalizeStrictProfile(profile),
-		SkipUpstreamBodyTransforms: true,
-	}
-	switch controls.Profile {
+	return strictProfileControlsFromPolicy(strictProfilePolicyFor(profile))
+}
+
+func strictProfilePolicyFor(profile string) strictProfilePolicy {
+	policy := strictProfilePolicy{Name: normalizeStrictProfile(profile), Headers: strictHeadersBeta}
+	switch policy.Name {
 	case "minimum":
-		controls.MinimumFingerprint = true
-		controls.MapTools = true
-		controls.ReplaceHeaders = true
+		policy.MinimumFingerprint = true
+		policy.Tools = strictToolsMapped
+		policy.Headers = strictHeadersMinimum
 	case "bearer":
-		controls.ForceBearerAuthorization = true
+		policy.ForceBearer = true
 	case "bearer_http1":
+		policy.ForceBearer = true
+		policy.ForceHTTP1 = true
+	case "minimal_core":
+		policy.Tools = strictToolsInjected
+	case "identity":
+		policy.System = strictSystemIdentity
+	case "system":
+		policy.System = strictSystemFull
+	case "body":
+		policy.System = strictSystemFull
+		policy.FullBody = true
+	case "body_core":
+		policy.System = strictSystemFull
+		policy.FullBody = true
+		policy.Tools = strictToolsInjected
+	case "headers":
+		policy.Headers = strictHeadersFull
+	case "headers_soft":
+		policy.Headers = strictHeadersSoft
+	case "body_headers":
+		policy.System = strictSystemFull
+		policy.FullBody = true
+		policy.Headers = strictHeadersFull
+	case "body_headers_core":
+		policy.System = strictSystemFull
+		policy.FullBody = true
+		policy.Headers = strictHeadersFull
+		policy.Tools = strictToolsInjected
+	case "full":
+		policy.System = strictSystemFull
+		policy.FullBody = true
+		policy.Headers = strictHeadersFull
+		policy.Tools = strictToolsMapped
+	}
+	if policy.Headers == strictHeadersFull {
+		policy.ForceBearer = true
+		policy.ForceHTTP1 = true
+	}
+	return policy
+}
+
+func strictProfileControlsFromPolicy(policy strictProfilePolicy) strictProfileControls {
+	controls := strictProfileControls{
+		Profile:                    policy.Name,
+		MinimumFingerprint:         policy.MinimumFingerprint,
+		IdentityOnly:               policy.System == strictSystemIdentity,
+		FullSystem:                 policy.System == strictSystemFull,
+		FullBody:                   policy.FullBody,
+		FullHeaders:                policy.Headers == strictHeadersFull || policy.Headers == strictHeadersSoft,
+		SoftHeaders:                policy.Headers == strictHeadersSoft,
+		InjectCoreTools:            policy.Tools == strictToolsInjected,
+		MapTools:                   policy.Tools == strictToolsMapped,
+		ForceBearerAuthorization:   policy.ForceBearer,
+		ReplaceHeaders:             policy.Headers != strictHeadersBeta,
+		SkipUpstreamBodyTransforms: true,
+		ForceHTTP1:                 policy.ForceHTTP1,
+	}
+	if policy.Headers == strictHeadersFull && !policy.ForceBearer {
 		controls.ForceBearerAuthorization = true
 		controls.ForceHTTP1 = true
-	case "minimal_core":
-		controls.InjectCoreTools = true
-	case "identity":
-		controls.IdentityOnly = true
-	case "system":
-		controls.FullSystem = true
-	case "body":
-		controls.FullSystem = true
-		controls.FullBody = true
-	case "body_core":
-		controls.FullSystem = true
-		controls.FullBody = true
-		controls.InjectCoreTools = true
-	case "headers":
-		controls.FullHeaders = true
-	case "headers_soft":
-		controls.FullHeaders = true
-		controls.SoftHeaders = true
-	case "body_headers":
-		controls.FullSystem = true
-		controls.FullBody = true
-		controls.FullHeaders = true
-	case "body_headers_core":
-		controls.FullSystem = true
-		controls.FullBody = true
-		controls.FullHeaders = true
-		controls.InjectCoreTools = true
-	case "full":
-		controls.FullSystem = true
-		controls.FullBody = true
-		controls.FullHeaders = true
-		controls.MapTools = true
-	}
-	if controls.FullHeaders {
-		controls.ReplaceHeaders = true
-		if !controls.SoftHeaders {
-			controls.ForceBearerAuthorization = true
-			controls.ForceHTTP1 = true
-		}
 	}
 	return controls
 }
