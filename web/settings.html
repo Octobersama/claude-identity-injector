@@ -694,7 +694,10 @@
       row.querySelectorAll('[data-choice]').forEach((input) => {
         input.addEventListener('change', () => {
           const key = input.dataset.choice;
-          rule[key] = Array.from(row.querySelectorAll(`[data-choice="${key}"]:checked`)).map((choice) => choice.value);
+          const visible = Array.from(row.querySelectorAll(`[data-choice="${key}"]`)).map((choice) => choice.value);
+          const selected = new Set((rule[key] || []).filter((value) => !visible.includes(value)));
+          row.querySelectorAll(`[data-choice="${key}"]:checked`).forEach((choice) => selected.add(choice.value));
+          rule[key] = Array.from(selected);
         });
       });
       row.querySelectorAll('[data-choice-tab]').forEach((button) => {
