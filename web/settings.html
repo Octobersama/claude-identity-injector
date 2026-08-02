@@ -717,13 +717,14 @@
               <label class="switch" title="启用规则"><input data-key="enabled" type="checkbox" ${rule.enabled ? 'checked' : ''}><span class="switch-track"></span></label>
             </div>
             <div class="rule-actions">
-              <div class="strict-toggle" title="跳过 CPA Cloak，并按所选实验档位接管请求；最低档只覆盖 anthropic-beta">
+              <div class="strict-toggle" title="跳过 CPA Cloak，并按所选档位接管请求；精简指纹仅补 AnyRouter 已确认需要的字段">
                 <span>严格模式</span>
                 <label class="switch"><input data-key="strict_mode" type="checkbox" ${rule.strict_mode ? 'checked' : ''} aria-label="启用严格模式"><span class="switch-track"></span></label>
               </div>
               <label class="profile-select">实验档位
                 <select data-key="strict_profile" aria-label="严格模式实验档位">
                   ${[
+                    ['minimum', '精简指纹（推荐）'],
                     ['minimal', '最小候选'],
                     ['bearer', '最小 + Bearer 认证'],
                     ['bearer_http1', 'Bearer + HTTP/1.1'],

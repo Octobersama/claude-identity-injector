@@ -59,6 +59,7 @@ plugins:
 
 严格模式可通过 `strict_profile` 选择请求改写档位。留空按 `full` 处理以兼容旧配置：
 
+- `minimum`：AnyRouter 消融验证后的精简指纹。非认证请求头使用明确白名单，仅保留 Claude CLI `User-Agent`、`context-1m-2025-08-07` beta、标准 `anthropic-version` 和 `content-type`；认证方式与密钥仍完全由 CPA 管理，Bearer 与 `x-api-key` 都不由插件强制切换。正文把身份句放到 `system[0]`，写入只含 `device_id`/`session_id` 的 `metadata.user_id` JSON 字符串。对于 OpenAI 等非 Claude 客户端，原顶层 system 会无损包成 `<system-reminder>` 并前置到第一个 user turn，避免非 Claude agent 指纹留在 Anthropic 顶层 system；原 messages、thinking、context management、effort、工具 Schema 和 HTTP 协议保持不变。Claude 原生请求继续保留原顶层 system。工具只映射已知核心别名，并在不足三个 Claude Code 核心名称时补充不可执行的只读兼容标记。
 - `minimal`：只补抓包中的 `anthropic-beta`，其余请求头、请求体和客户端工具保持 CPA/客户端原样。
 - `bearer`：在 `minimal` 基础上只把 CPA 管理的 `x-api-key` 转换为 `Authorization: Bearer`。
 - `bearer_http1`：在 `bearer` 基础上只强制使用 HTTP/1.1，不替换其他请求头。
@@ -130,7 +131,7 @@ plugins/windows/amd64/claude-identity-injector.dll
 GET /v0/management/plugins/claude-identity-injector/status
 ```
 
-返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`strict_requests_active`、`tool_mapped`、`tool_names_restored`、`tool_arguments_fixed`、`tool_diagnostics`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按实际发生工具名映射的请求计数；`strict_requests_active` 是尚未收到终止回调的严格请求数；`tool_diagnostics` 按工具聚合已检查调用、名称还原、字段修复、无法修复及最近问题。`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
+返回 `seen`、`matched`、`unmatched`、`injected`、`already_present`、`strict_takeover`、`strict_requests_active`、`tool_mapped`、`tool_names_restored`、`tool_arguments_fixed`、`tool_diagnostics`、`effective`、`cloak_skipped` 和 `errors`。`tool_mapped` 按实际发生工具名映射的请求计数；`strict_requests_active` 是尚未收到终止回调的严格请求数；`tool_diagnostics` 按工具聚合已检查调用、名称还原、字段修复、无法修复及最近问题。缺少生命周期 `RequestID` 的管理 API 探针仍可完成上游请求，但不会进入响应跟踪，也不计入 `errors`。`effective = injected + already_present`，表示最终具备身份提示词的命中请求。
 
 对于插件已成功接管的严格请求，Anthropic 上游返回给 OpenAI Chat 或 OpenAI Responses 客户端的工具调用会在响应翻译完成后依据客户端原始工具 Schema 做保守修复。字段名仅在忽略大小写及 `_`/`-` 后唯一对应一个 Schema 字段且目标字段不存在时恢复，例如把模型返回的 `dry_run` 恢复为 OpenCode Schema 的 `dryRun`；候选歧义或目标冲突时保持原样并记入诊断。随后，只有 Schema 明确要求 `array`、`object`、`boolean`、`integer` 或 `number`，且字符串能完整、无歧义地解析为该类型时才转换；声明为 `string`、联合类型、非法 JSON 或目标类型不匹配的字段保持原样。插件通过 `RequestID` 隔离并在成功、失败、拒绝或取消后清理状态，普通请求不进入这条链路。日志和管理页均不记录参数值。
 

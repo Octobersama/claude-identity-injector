@@ -39,6 +39,7 @@ type upstreamResponse struct {
 	ClearHeaders               []string    `json:"ClearHeaders,omitempty"`
 	BypassClaudeCloak          bool        `json:"BypassClaudeCloak,omitempty"`
 	ForceBearerAuthorization   bool        `json:"ForceBearerAuthorization,omitempty"`
+	ForceAPIKeyAuthentication  bool        `json:"ForceAPIKeyAuthentication,omitempty"`
 	ReplaceHeaders             bool        `json:"ReplaceHeaders,omitempty"`
 	SkipUpstreamBodyTransforms bool        `json:"SkipUpstreamBodyTransforms,omitempty"`
 	ForceHTTP1                 bool        `json:"ForceHTTP1,omitempty"`
@@ -110,6 +111,7 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields["outcome"] = "strict_profile"
 		fields["phase"] = req.Phase
 		fields["strict_profile"] = controls.Profile
+		fields["minimum_fingerprint"] = controls.MinimumFingerprint
 		fields["identity_only"] = controls.IdentityOnly
 		fields["full_system"] = controls.FullSystem
 		fields["full_body"] = controls.FullBody
@@ -118,24 +120,34 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		fields["inject_core_tools"] = controls.InjectCoreTools
 		fields["map_tools"] = controls.MapTools
 		fields["force_bearer_authorization"] = controls.ForceBearerAuthorization
+		fields["force_api_key_authentication"] = controls.ForceAPIKeyAuthentication
 		fields["replace_headers"] = controls.ReplaceHeaders
 		fields["skip_upstream_body_transforms"] = controls.SkipUpstreamBodyTransforms
 		fields["force_http1"] = controls.ForceHTTP1
-		fields["anthropic_beta"] = strictBetas
-		fields["anthropic_beta_bytes"] = len(strictBetas)
-		fields["anthropic_beta_sha256"] = strictBetasSHA256()
-		fields["has_context_1m"] = strings.Contains(strictBetas, "context-1m-2025-08-07")
+		fields["client_system_relocated"] = controls.ClientSystemRelocated
+		fields["client_system_blocks_moved"] = controls.ClientSystemBlocksMoved
+		fields["client_system_bytes_moved"] = controls.ClientSystemBytesMoved
+		betas := strictBetas
+		if controls.MinimumFingerprint {
+			betas = strictMinimumBetas
+		}
+		fields["anthropic_beta"] = betas
+		fields["anthropic_beta_bytes"] = len(betas)
+		fields["anthropic_beta_sha256"] = strictBetasValueSHA256(betas)
+		fields["has_context_1m"] = strings.Contains(betas, "context-1m-2025-08-07")
 		fields["body_bytes"] = len(updated)
 		fields["tool_strategy"] = toolMapping.Strategy
 		fields["client_tool_count"] = toolMapping.ClientToolCount
 		fields["upstream_tool_count"] = toolMapping.UpstreamToolCount
+		fields["upstream_core_tool_count"] = toolMapping.CoreToolCount
 		fields["tool_alias_count"] = toolMapping.AliasCount
 		fields["tool_alias_fallback_count"] = toolMapping.FallbackCount
+		bodySummary := summarizeStrictBody(updated)
 		if mappingValue := toolMapping.logValue(); mappingValue != "" {
 			fields["tool_mapping"] = mappingValue
 		}
-		logHost(req.HostCallbackID, "info", "Claude strict profile took over request", fields)
-		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: controls.ForceBearerAuthorization, ReplaceHeaders: controls.ReplaceHeaders, SkipUpstreamBodyTransforms: controls.SkipUpstreamBodyTransforms, ForceHTTP1: controls.ForceHTTP1})
+		logHost(req.HostCallbackID, "info", "Claude strict profile took over request "+bodySummary.compact(), fields)
+		return okEnvelope(upstreamResponse{Body: updated, Headers: headers, ClearHeaders: clearHeaders, ForceBearerAuthorization: controls.ForceBearerAuthorization, ForceAPIKeyAuthentication: controls.ForceAPIKeyAuthentication, ReplaceHeaders: controls.ReplaceHeaders, SkipUpstreamBodyTransforms: controls.SkipUpstreamBodyTransforms, ForceHTTP1: controls.ForceHTTP1})
 	}
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)

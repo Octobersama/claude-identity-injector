@@ -57,8 +57,7 @@ type streamChunkInterceptResponse struct {
 
 func storeStrictRequest(req upstreamRequest, mapping strictToolMapping) {
 	if strings.TrimSpace(req.RequestID) == "" {
-		counters.errors.Add(1)
-		logHost(req.HostCallbackID, "error", "Claude strict response tracking skipped because request ID is empty", logFields(req, ""))
+		logHost(req.HostCallbackID, "debug", "Claude strict response tracking unavailable without request ID", logFields(req, ""))
 		return
 	}
 	canonicalToClient := make(map[string]string, len(mapping.CanonicalToClient))

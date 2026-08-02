@@ -179,7 +179,7 @@ func parseConfig(raw []byte) (config, error) {
 		rule.UpstreamModels = cleanList(rule.UpstreamModels)
 		rule.StrictProfile = normalizeStrictProfile(rule.StrictProfile)
 		if !validStrictProfile(rule.StrictProfile) {
-			return config{}, fmt.Errorf("rule %q strict_profile must be minimal, bearer, bearer_http1, minimal_core, identity, system, body, body_core, headers, headers_soft, body_headers, body_headers_core, or full", rule.ID)
+			return config{}, fmt.Errorf("rule %q strict_profile must be minimum, minimal, bearer, bearer_http1, minimal_core, identity, system, body, body_core, headers, headers_soft, body_headers, body_headers_core, or full", rule.ID)
 		}
 		setMatchDefault(&rule.MatchProviders, len(rule.ProviderAuthIndexes) > 0 || len(rule.Providers) > 0)
 		setMatchDefault(&rule.MatchAuths, len(rule.AuthIDs) > 0 || len(rule.AuthIndexes) > 0)
@@ -215,7 +215,7 @@ func normalizeStrictProfile(value string) string {
 
 func validStrictProfile(value string) bool {
 	switch normalizeStrictProfile(value) {
-	case "minimal", "bearer", "bearer_http1", "minimal_core", "identity", "system", "body", "body_core", "headers", "headers_soft", "body_headers", "body_headers_core", "full":
+	case "minimum", "minimal", "bearer", "bearer_http1", "minimal_core", "identity", "system", "body", "body_core", "headers", "headers_soft", "body_headers", "body_headers_core", "full":
 		return true
 	default:
 		return false

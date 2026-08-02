@@ -210,20 +210,25 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
 		Body:         []byte(`{"model":"claude-opus-5","system":[{"type":"text","text":"client system"}],"messages":[],"tools":[{"name":"run_shell","description":"client tool","input_schema":{"type":"object"}}]}`),
 	}
-	for _, profile := range []string{"minimal", "bearer", "bearer_http1", "minimal_core", "identity", "system", "body", "body_core", "headers", "headers_soft", "body_headers", "body_headers_core", "full"} {
+	for _, profile := range []string{"minimum", "minimal", "bearer", "bearer_http1", "minimal_core", "identity", "system", "body", "body_core", "headers", "headers_soft", "body_headers", "body_headers_core", "full"} {
 		t.Run(profile, func(t *testing.T) {
 			updated, headers, clearHeaders, mapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, profile)
 			if errStrict != nil {
 				t.Fatal(errStrict)
 			}
-			if values := headers["anthropic-beta"]; len(values) != 1 || values[0] != strictBetas {
+			wantBetas := strictBetas
+			if profile == "minimum" {
+				wantBetas = strictMinimumBetas
+			}
+			if values := headers["anthropic-beta"]; len(values) != 1 || values[0] != wantBetas {
 				t.Fatalf("anthropic-beta = %#v", values)
 			}
 			fullHeaders := profile == "headers" || profile == "body_headers" || profile == "body_headers_core" || profile == "full"
 			softHeaders := profile == "headers_soft"
 			wantBearer := profile == "bearer" || profile == "bearer_http1" || fullHeaders
 			wantHTTP1 := profile == "bearer_http1" || fullHeaders
-			if controls.ReplaceHeaders != (fullHeaders || softHeaders) || controls.ForceHTTP1 != wantHTTP1 || controls.ForceBearerAuthorization != wantBearer {
+			wantReplaceHeaders := profile == "minimum" || fullHeaders || softHeaders
+			if controls.ReplaceHeaders != wantReplaceHeaders || controls.ForceHTTP1 != wantHTTP1 || controls.ForceBearerAuthorization != wantBearer || controls.ForceAPIKeyAuthentication {
 				t.Fatalf("header controls = %#v", controls)
 			}
 			if fullHeaders || softHeaders {
@@ -249,6 +254,13 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				if len(system) != 1 || system[0].Text != "client system" {
 					t.Fatalf("system = %#v", system)
 				}
+			case "minimum":
+				if len(system) != 1 || system[0].Text != identityPrompt {
+					t.Fatalf("system = %#v", system)
+				}
+				if !controls.ClientSystemRelocated || controls.ClientSystemBlocksMoved != 1 || controls.ClientSystemBytesMoved != len("client system") {
+					t.Fatalf("minimum controls = %#v", controls)
+				}
 			case "identity":
 				if len(system) != 2 || system[0].Text != identityPrompt || system[1].Text != "client system" {
 					t.Fatalf("system = %#v", system)
@@ -259,18 +271,183 @@ func TestStrictProfileAblationPresets(t *testing.T) {
 				}
 			}
 			_, hasMetadata := body["metadata"]
-			wantMetadata := profile == "body" || profile == "body_core" || profile == "body_headers" || profile == "body_headers_core" || profile == "full"
+			wantMetadata := profile == "minimum" || profile == "body" || profile == "body_core" || profile == "body_headers" || profile == "body_headers_core" || profile == "full"
 			if hasMetadata != wantMetadata {
 				t.Fatalf("metadata present = %t, want %t", hasMetadata, wantMetadata)
 			}
-			if profile == "full" {
-				if mapping.AliasCount != 1 || mapping.Strategy != "client_tools" {
+			if profile == "full" || profile == "minimum" {
+				wantStrategy := "client_tools"
+				if profile == "minimum" {
+					wantStrategy = "client_tools_padded"
+				}
+				if mapping.AliasCount != 1 || mapping.Strategy != wantStrategy {
 					t.Fatalf("mapping = %#v", mapping)
 				}
 			} else if mapping.AliasCount != 0 || mapping.Strategy != "preserved_native" {
 				t.Fatalf("mapping = %#v", mapping)
 			}
 		})
+	}
+}
+
+func TestMinimumStrictProfilePreservesClientBodyAndAddsOnlyFingerprint(t *testing.T) {
+	req := upstreamRequest{
+		RequestID:    "minimum-request",
+		SourceFormat: "openai",
+		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
+		Body: []byte(`{
+			"model":"claude-opus-5",
+			"system":[{"type":"text","text":"client system"}],
+			"messages":[],
+			"metadata":{"client":"keep"},
+			"thinking":{"type":"enabled","budget_tokens":1024},
+			"context_management":{"client":true},
+			"output_config":{"effort":"low"},
+			"tools":[{"name":"run_shell","description":"run","input_schema":{"type":"object"}},{"name":"CustomTool","description":"custom","input_schema":{"type":"object"}}]
+		}`),
+	}
+	updated, headers, clearHeaders, mapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, "minimum")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	if !controls.MinimumFingerprint || controls.FullSystem || controls.FullBody || controls.FullHeaders || controls.ForceHTTP1 || controls.ForceBearerAuthorization || controls.ForceAPIKeyAuthentication || !controls.ReplaceHeaders {
+		t.Fatalf("controls = %#v", controls)
+	}
+	if len(clearHeaders) != 0 || len(headers) != 4 || len(headers["anthropic-beta"]) != 1 || headers["anthropic-beta"][0] != strictMinimumBetas || headers.Get("Anthropic-Version") != "2023-06-01" || headers.Get("Content-Type") != "application/json" || headers.Get("User-Agent") != "claude-cli/2.1.220 (external, cli)" {
+		t.Fatalf("headers=%#v clear=%v", headers, clearHeaders)
+	}
+	var body struct {
+		System   []strictTextBlock `json:"system"`
+		Messages []struct {
+			Role    string            `json:"role"`
+			Content []strictTextBlock `json:"content"`
+		} `json:"messages"`
+		Metadata          map[string]json.RawMessage `json:"metadata"`
+		Thinking          json.RawMessage            `json:"thinking"`
+		ContextManagement json.RawMessage            `json:"context_management"`
+		OutputConfig      json.RawMessage            `json:"output_config"`
+		Tools             []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if len(body.System) != 1 || body.System[0].Text != identityPrompt {
+		t.Fatalf("system = %#v", body.System)
+	}
+	if len(body.Messages) != 1 || body.Messages[0].Role != "user" || len(body.Messages[0].Content) != 1 || body.Messages[0].Content[0].Text != "<system-reminder>\nclient system\n</system-reminder>" {
+		t.Fatalf("messages = %#v", body.Messages)
+	}
+	if !controls.ClientSystemRelocated || controls.ClientSystemBlocksMoved != 1 || controls.ClientSystemBytesMoved != len("client system") {
+		t.Fatalf("controls = %#v", controls)
+	}
+	if string(body.Metadata["client"]) != `"keep"` {
+		t.Fatalf("metadata client field = %s", body.Metadata["client"])
+	}
+	var userID string
+	if errUnmarshal := json.Unmarshal(body.Metadata["user_id"], &userID); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if !strings.Contains(userID, `"device_id"`) || !strings.Contains(userID, `"session_id"`) || strings.Contains(userID, `"account_uuid"`) {
+		t.Fatalf("metadata.user_id = %q", userID)
+	}
+	if !strings.Contains(string(body.Thinking), `"budget_tokens":1024`) || !strings.Contains(string(body.ContextManagement), `"client":true`) || !strings.Contains(string(body.OutputConfig), `"effort":"low"`) {
+		t.Fatalf("client body fields changed: thinking=%s context=%s output=%s", body.Thinking, body.ContextManagement, body.OutputConfig)
+	}
+	toolNames := make([]string, 0, len(body.Tools))
+	for _, tool := range body.Tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	if !slices.Contains(toolNames, "Bash") || !slices.Contains(toolNames, "CustomTool") || mapping.CoreToolCount != 3 || mapping.Strategy != "client_tools_padded" {
+		t.Fatalf("tools=%v mapping=%#v", toolNames, mapping)
+	}
+}
+
+func TestMinimumStrictProfileKeepsNativeClaudeSystemAtTopLevel(t *testing.T) {
+	req := upstreamRequest{
+		SourceFormat: "claude",
+		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
+		Body:         []byte(`{"system":[{"type":"text","text":"client system"}],"messages":[{"role":"user","content":"hello"}]}`),
+	}
+	updated, _, _, _, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, "minimum")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	var body struct {
+		System []strictTextBlock `json:"system"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if len(body.System) != 2 || body.System[0].Text != identityPrompt || body.System[1].Text != "client system" {
+		t.Fatalf("system = %#v", body.System)
+	}
+	if controls.ClientSystemRelocated || controls.ClientSystemBlocksMoved != 0 || controls.ClientSystemBytesMoved != 0 {
+		t.Fatalf("controls = %#v", controls)
+	}
+}
+
+func TestMinimumStrictProfilePrependsClientSystemReminderToExistingUserContent(t *testing.T) {
+	req := upstreamRequest{
+		SourceFormat: "openai",
+		Auth:         upstreamAuth{ID: "auth-a", Index: "index-a"},
+		Body: []byte(`{
+			"system":[{"type":"text","text":"rule one"},{"type":"text","text":"rule two"}],
+			"messages":[{"role":"user","content":[{"type":"text","text":"hello"}]}]
+		}`),
+	}
+	updated, _, _, _, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, "minimum")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	var body struct {
+		System   []strictTextBlock `json:"system"`
+		Messages []struct {
+			Role    string            `json:"role"`
+			Content []strictTextBlock `json:"content"`
+		} `json:"messages"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if len(body.System) != 1 || body.System[0].Text != identityPrompt {
+		t.Fatalf("system = %#v", body.System)
+	}
+	if len(body.Messages) != 1 || len(body.Messages[0].Content) != 2 || body.Messages[0].Content[0].Text != "<system-reminder>\nrule one\n\nrule two\n</system-reminder>" || body.Messages[0].Content[1].Text != "hello" {
+		t.Fatalf("messages = %#v", body.Messages)
+	}
+	if !controls.ClientSystemRelocated || controls.ClientSystemBlocksMoved != 2 || controls.ClientSystemBytesMoved != len("rule onerule two") {
+		t.Fatalf("controls = %#v", controls)
+	}
+}
+
+func TestMinimumStrictProfileInjectsOnlyReadOnlyMarkersWhenToolsMissing(t *testing.T) {
+	req := upstreamRequest{
+		RequestID: "minimum-missing-tools",
+		Auth:      upstreamAuth{ID: "auth-a", Index: "index-a"},
+		Body:      []byte(`{"model":"claude-opus-5","messages":[]}`),
+	}
+	updated, _, _, mapping, _, errStrict := applyStrictClaudeCodeProfileWithProfile(req, "minimum")
+	if errStrict != nil {
+		t.Fatal(errStrict)
+	}
+	var body struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"tools"`
+	}
+	if errUnmarshal := json.Unmarshal(updated, &body); errUnmarshal != nil {
+		t.Fatal(errUnmarshal)
+	}
+	if len(body.Tools) != 3 || mapping.Strategy != "injected_minimum" || mapping.CoreToolCount != 3 {
+		t.Fatalf("tools=%#v mapping=%#v", body.Tools, mapping)
+	}
+	for _, tool := range body.Tools {
+		if !strings.Contains(tool.Description, "unavailable for execution") {
+			t.Fatalf("tool %s description = %q", tool.Name, tool.Description)
+		}
 	}
 }
 

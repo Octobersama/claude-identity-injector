@@ -23,6 +23,7 @@ type strictToolMapping struct {
 	UpstreamToolCount int
 	AliasCount        int
 	FallbackCount     int
+	CoreToolCount     int
 	CanonicalToClient map[string]string
 	ClientToCanonical map[string]string
 }
@@ -41,6 +42,7 @@ func applyStrictClientToolMapping(body map[string]json.RawMessage, sourceFormat 
 		return strictToolMapping{
 			Strategy:          "injected_core",
 			UpstreamToolCount: len(strictCoreToolNames),
+			CoreToolCount:     len(strictCoreToolNames),
 		}, nil
 	}
 
@@ -50,6 +52,7 @@ func applyStrictClientToolMapping(body map[string]json.RawMessage, sourceFormat 
 			Strategy:          "preserved_native",
 			ClientToolCount:   count,
 			UpstreamToolCount: count,
+			CoreToolCount:     strictRecognizedCoreToolCount(rawTools),
 		}, nil
 	}
 
@@ -61,6 +64,7 @@ func applyStrictClientToolMapping(body map[string]json.RawMessage, sourceFormat 
 		body["tools"] = json.RawMessage(strictToolsJSON)
 		mapping.Strategy = "injected_core"
 		mapping.UpstreamToolCount = len(strictCoreToolNames)
+		mapping.CoreToolCount = len(strictCoreToolNames)
 		return mapping, nil
 	}
 	body["tools"] = mappedTools
@@ -126,6 +130,7 @@ func buildStrictClientToolMapping(rawTools json.RawMessage) (json.RawMessage, st
 			break
 		}
 	}
+	mapping.CoreToolCount = len(assignedCanonical)
 
 	output := append([]json.RawMessage(nil), tools...)
 	for _, candidate := range candidates {
@@ -158,6 +163,25 @@ func buildStrictClientToolMapping(rawTools json.RawMessage) (json.RawMessage, st
 	}
 	mapping.UpstreamToolCount = len(output)
 	return updated, mapping, nil
+}
+
+func strictRecognizedCoreToolCount(rawTools json.RawMessage) int {
+	var tools []struct {
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(rawTools, &tools) != nil {
+		return 0
+	}
+	seen := make(map[string]bool, len(strictCoreToolNames))
+	for _, tool := range tools {
+		for _, canonical := range strictCoreToolNames {
+			if strictToolNameMatchesCanonical(tool.Name, canonical) {
+				seen[canonical] = true
+				break
+			}
+		}
+	}
+	return len(seen)
 }
 
 func strictToolNameMatchesCanonical(name, canonical string) bool {

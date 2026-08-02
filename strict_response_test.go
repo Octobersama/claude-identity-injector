@@ -47,6 +47,14 @@ func schema(properties map[string]any) map[string]any {
 	return map[string]any{"type": "object", "properties": properties}
 }
 
+func TestStoreStrictRequestWithoutIDDoesNotCountAsError(t *testing.T) {
+	before := counters.errors.Load()
+	storeStrictRequest(upstreamRequest{Body: []byte(`{"tools":[]}`)}, strictToolMapping{})
+	if after := counters.errors.Load(); after != before {
+		t.Fatalf("errors changed from %d to %d", before, after)
+	}
+}
+
 func TestFinalResponseInterceptorLeavesNonStrictRequestUnchanged(t *testing.T) {
 	deleteStrictRequest("ordinary")
 	req, _ := json.Marshal(responseInterceptRequest{
