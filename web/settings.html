@@ -648,7 +648,7 @@
 
     function providerKeyChoices() {
       return state.auths
-        .filter((auth) => auth.source === 'config' && Array.isArray(auth.models) && auth.models.length > 0)
+        .filter((auth) => auth.source === 'config')
         .map((auth) => ({
           value: auth.auth_index || '',
           label: auth.base_url || '默认端点',
