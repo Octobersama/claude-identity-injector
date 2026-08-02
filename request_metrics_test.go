@@ -57,6 +57,29 @@ func TestRequestMetricsCountUnmatchedFinalRequest(t *testing.T) {
 	}
 }
 
+func TestRequestMetricsUpgradeRetryFromUnmatchedToMatched(t *testing.T) {
+	resetRequestMetricTestState()
+	t.Cleanup(resetRequestMetricTestState)
+
+	req := upstreamRequest{RequestID: "request-retry", Phase: "final"}
+	observeRequestPhase(req, false)
+	observeRequestPhase(req, true)
+	observeRequestPhase(req, false)
+
+	if got := counters.seen.Load(); got != 1 {
+		t.Fatalf("seen = %d, want 1", got)
+	}
+	if got := counters.interceptCalls.Load(); got != 3 {
+		t.Fatalf("intercept calls = %d, want 3", got)
+	}
+	if got := counters.matched.Load(); got != 1 {
+		t.Fatalf("matched = %d, want 1", got)
+	}
+	if got := counters.unmatched.Load(); got != 0 {
+		t.Fatalf("unmatched = %d, want 0", got)
+	}
+}
+
 func TestRequestMetricsCountProbeWithoutRequestIDOnlyAtFinal(t *testing.T) {
 	resetRequestMetricTestState()
 	t.Cleanup(resetRequestMetricTestState)

@@ -54,7 +54,7 @@ var counters struct {
 	seen               atomic.Uint64
 	interceptCalls     atomic.Uint64
 	matched            atomic.Uint64
-	unmatched          atomic.Uint64
+	unmatched          atomic.Int64
 	injected           atomic.Uint64
 	already            atomic.Uint64
 	strict             atomic.Uint64

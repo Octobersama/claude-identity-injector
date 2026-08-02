@@ -6,8 +6,9 @@ import (
 )
 
 type requestMetricState struct {
-	finalized bool
-	outcomes  map[string]struct{}
+	classified bool
+	matched    bool
+	outcomes   map[string]struct{}
 }
 
 var requestMetrics = struct {
@@ -38,15 +39,28 @@ func observeRequestPhase(req upstreamRequest, matched bool) {
 		requestMetrics.values[requestID] = state
 		counters.seen.Add(1)
 	}
-	if req.Phase == "final" && !state.finalized {
-		state.finalized = true
+	if req.Phase == "final" {
+		classifyRequestMetric(state, matched)
+	}
+	requestMetrics.mu.Unlock()
+}
+
+func classifyRequestMetric(state *requestMetricState, matched bool) {
+	if !state.classified {
+		state.classified = true
+		state.matched = matched
 		if matched {
 			counters.matched.Add(1)
 		} else {
 			counters.unmatched.Add(1)
 		}
+		return
 	}
-	requestMetrics.mu.Unlock()
+	if matched && !state.matched {
+		state.matched = true
+		counters.unmatched.Add(-1)
+		counters.matched.Add(1)
+	}
 }
 
 func recordRequestMetric(req upstreamRequest, metric string) bool {
