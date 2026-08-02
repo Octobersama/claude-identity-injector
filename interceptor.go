@@ -52,7 +52,9 @@ type systemBlock struct {
 
 var counters struct {
 	seen               atomic.Uint64
+	interceptCalls     atomic.Uint64
 	matched            atomic.Uint64
+	unmatched          atomic.Uint64
 	injected           atomic.Uint64
 	already            atomic.Uint64
 	strict             atomic.Uint64
@@ -75,8 +77,8 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	if !cfg.Active || !strings.EqualFold(req.ToFormat, "claude") {
 		return okEnvelope(upstreamResponse{})
 	}
-	counters.seen.Add(1)
 	matchedRule := firstMatchingRule(cfg.Rules, req)
+	observeRequestPhase(req, matchedRule != nil)
 	if req.Phase == "pre_cloak" {
 		bypass := matchedRule != nil && matchedRule.StrictMode
 		if bypass {
@@ -91,19 +93,24 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 		logHost(req.HostCallbackID, "debug", "Claude identity injection rule did not match", logFields(req, ""))
 		return okEnvelope(upstreamResponse{})
 	}
-	counters.matched.Add(1)
 	if matchedRule.StrictMode {
 		updated, headers, clearHeaders, toolMapping, controls, errStrict := applyStrictClaudeCodeProfileWithProfile(req, matchedRule.StrictProfile)
 		if errStrict != nil {
-			counters.errors.Add(1)
+			if recordRequestMetric(req, "error") {
+				counters.errors.Add(1)
+			}
 			fields := logFields(req, matchedRule.ID)
 			fields["error"] = errStrict.Error()
 			logHost(req.HostCallbackID, "error", "Claude strict profile failed open", fields)
 			return okEnvelope(upstreamResponse{})
 		}
-		counters.injected.Add(1)
-		counters.strict.Add(1)
-		if toolMapping.AliasCount > 0 {
+		if recordRequestMetric(req, "injected") {
+			counters.injected.Add(1)
+		}
+		if recordRequestMetric(req, "strict_takeover") {
+			counters.strict.Add(1)
+		}
+		if toolMapping.AliasCount > 0 && recordRequestMetric(req, "tool_mapped") {
 			counters.toolMapped.Add(1)
 		}
 		storeStrictRequest(req, toolMapping)
@@ -152,7 +159,9 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 
 	updated, outcome, errInject := injectIdentity(req.Body, cfg.CloakHandling)
 	if errInject != nil {
-		counters.errors.Add(1)
+		if recordRequestMetric(req, "error") {
+			counters.errors.Add(1)
+		}
 		fields := logFields(req, matchedRule.ID)
 		fields["error"] = errInject.Error()
 		logHost(req.HostCallbackID, "error", "Claude identity injection failed open", fields)
@@ -162,16 +171,22 @@ func handleUpstreamIntercept(raw []byte) ([]byte, error) {
 	fields["outcome"] = outcome
 	switch outcome {
 	case "injected":
-		counters.injected.Add(1)
+		if recordRequestMetric(req, "injected") {
+			counters.injected.Add(1)
+		}
 		if cfg.LogMatches != nil && *cfg.LogMatches {
 			logHost(req.HostCallbackID, "info", "Claude identity system prompt injected", fields)
 		}
 		return okEnvelope(upstreamResponse{Body: updated})
 	case "already_present":
-		counters.already.Add(1)
+		if recordRequestMetric(req, "already_present") {
+			counters.already.Add(1)
+		}
 		logHost(req.HostCallbackID, "debug", "Claude identity system prompt already present", fields)
 	case "cloak_skipped":
-		counters.cloakSkipped.Add(1)
+		if recordRequestMetric(req, "cloak_skipped") {
+			counters.cloakSkipped.Add(1)
+		}
 		logHost(req.HostCallbackID, "info", "Claude identity injection skipped because CPA Cloak is active", fields)
 	}
 	return okEnvelope(upstreamResponse{})

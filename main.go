@@ -128,6 +128,7 @@ func cliproxyPluginFree(ptr unsafe.Pointer, length C.size_t) {
 //export cliproxyPluginShutdown
 func cliproxyPluginShutdown() {
 	clearStrictRequests()
+	clearRequestMetrics()
 	logHost("", "info", "Claude identity injector stopped", nil)
 }
 

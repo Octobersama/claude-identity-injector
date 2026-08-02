@@ -134,17 +134,14 @@ func handleManagement(raw []byte) ([]byte, error) {
 		matched := counters.matched.Load()
 		injected := counters.injected.Load()
 		alreadyPresent := counters.already.Load()
-		unmatched := uint64(0)
-		if seen > matched {
-			unmatched = seen - matched
-		}
 		return okEnvelope(managementJSONResponse(http.StatusOK, map[string]any{
 			"active":                 cfg.Active,
 			"rules":                  len(cfg.Rules),
 			"identity":               identityPrompt,
 			"seen":                   seen,
 			"matched":                matched,
-			"unmatched":              unmatched,
+			"unmatched":              counters.unmatched.Load(),
+			"intercept_calls":        counters.interceptCalls.Load(),
 			"injected":               injected,
 			"already_present":        alreadyPresent,
 			"strict_takeover":        counters.strict.Load(),

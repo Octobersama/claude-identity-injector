@@ -185,6 +185,7 @@ func handleRequestComplete(raw []byte) ([]byte, error) {
 		return nil, errUnmarshal
 	}
 	deleteStrictRequest(completion.RequestID)
+	deleteRequestMetrics(completion.RequestID)
 	return okEnvelope(struct{}{})
 }
 
