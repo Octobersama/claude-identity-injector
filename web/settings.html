@@ -599,6 +599,7 @@
         strict_profile: 'full',
         match_providers: false,
         match_auths: false,
+        match_requested_models: false,
         match_upstream_models: false,
         providers: [],
         provider_auth_indexes: [],
@@ -684,6 +685,12 @@
           if (input.classList.contains('condition-toggle')) updateConditionState(input);
         });
       });
+      row.querySelectorAll('[data-list-key]').forEach((input) => {
+        input.addEventListener('change', () => {
+          const key = input.dataset.listKey;
+          rule[key] = input.value.split(/[\n,]/).map((value) => value.trim()).filter(Boolean);
+        });
+      });
       row.querySelectorAll('[data-choice]').forEach((input) => {
         input.addEventListener('change', () => {
           const key = input.dataset.choice;
@@ -701,6 +708,7 @@
     function renderRule(rule, index) {
       const matchProviders = isMatchEnabled(rule, 'match_providers', [rule.provider_auth_indexes, rule.providers]);
       const matchAuths = isMatchEnabled(rule, 'match_auths', [rule.auth_ids, rule.auth_indexes]);
+      const matchRequestedModels = isMatchEnabled(rule, 'match_requested_models', [rule.requested_models]);
       const matchUpstreamModels = isMatchEnabled(rule, 'match_upstream_models', [rule.upstream_models]);
       const row = document.createElement('article');
       row.className = 'rule';
@@ -755,6 +763,11 @@
               <div class="condition-controls">${renderChoiceList('auth_indexes', authChoices(), rule.auth_indexes, `${rule.id}:auths`)}</div>
               <span class="field-hint">可多选当前 CPA 已加载的认证文件</span>
             </div>
+            <div class="condition">
+              <div class="condition-header"><span class="condition-title">请求模型</span><label class="switch"><input class="condition-toggle" data-key="match_requested_models" type="checkbox" ${matchRequestedModels ? 'checked' : ''} aria-label="启用请求模型条件"><span class="switch-track"></span></label></div>
+              <div class="condition-controls"><input class="text-input" data-list-key="requested_models" type="text" value="${escapeHTML((rule.requested_models || []).join(', '))}" placeholder="例如 claude-*，多个值用逗号或换行分隔" ${matchRequestedModels ? '' : 'disabled'}></div>
+              <span class="field-hint">匹配客户端原始请求中的模型名称，支持 * 和 ? glob</span>
+            </div>
             <div class="condition wide ${matchUpstreamModels ? '' : 'disabled'}">
               <div class="condition-header"><span class="condition-title">上游模型</span><label class="switch"><input class="condition-toggle" data-key="match_upstream_models" type="checkbox" ${matchUpstreamModels ? 'checked' : ''} aria-label="启用上游模型条件"><span class="switch-track"></span></label></div>
               <div class="condition-controls">${renderChoiceList('upstream_models', modelChoices(), rule.upstream_models, `${rule.id}:models`)}</div>
@@ -768,6 +781,7 @@
       row.querySelector('.remove').addEventListener('click', () => removeRule(index));
       bindRuleInputs(row, rule);
       row.querySelectorAll('.condition-toggle').forEach(updateConditionState);
+      row.querySelectorAll('[data-list-key]').forEach((input) => { input.disabled = !matchRequestedModels; });
       return row;
     }
 
@@ -844,7 +858,7 @@
       try {
         const [config, auths, stats, catalog] = await Promise.all([api(CONFIG_URL), api(AUTHS_URL), api(STATUS_URL), api(CATALOG_URL)]);
         state.config = config;
-        state.rules = Array.isArray(config.rules) ? structuredClone(config.rules).map((rule) => ({ ...rule, match_requested_models: false, requested_models: [] })) : [];
+        state.rules = Array.isArray(config.rules) ? structuredClone(config.rules) : [];
         state.auths = Array.isArray(auths.files) ? auths.files.filter((auth) => auth.auth_index && auth.status !== 'disabled' && !auth.disabled && !auth.unavailable) : [];
         state.models = Array.isArray(catalog.models) ? catalog.models.map((model) => ({ id: model.id, label: model.id, provider: model.owned_by || 'other' })).filter((model) => model.id) : [];
         element('active').checked = config.active === true;
@@ -872,6 +886,7 @@
         if (ids.has(rule.id)) throw new Error(`规则 ID 重复: ${rule.id}`);
         if (rule.match_providers && !(rule.provider_auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用已配置密钥条件，但尚未选择条目`);
         if (rule.match_auths && !(rule.auth_indexes || []).length) throw new Error(`规则 ${rule.id} 已启用 Auth 文件条件，但尚未选择文件`);
+        if (rule.match_requested_models && !(rule.requested_models || []).length) throw new Error(`规则 ${rule.id} 已启用请求模型条件，但尚未填写模型 glob`);
         if (rule.match_upstream_models && !(rule.upstream_models || []).length) throw new Error(`规则 ${rule.id} 已启用上游模型条件，但尚未选择模型`);
         ids.add(rule.id);
       }
@@ -888,7 +903,7 @@
         cloak_handling: element('cloakHandling').value,
         skip_when_cloaked: element('cloakHandling').value === 'skip',
         log_matches: element('logMatches').checked,
-        rules: state.rules.map((rule) => ({ ...rule, providers: [], auth_ids: [], match_requested_models: false, requested_models: [] }))
+        rules: state.rules.map((rule) => ({ ...rule, providers: [], auth_ids: [] }))
       };
 
       element('save').disabled = true;
